@@ -1,0 +1,8 @@
+{
+  "schema_version": "1.0",
+  "project_id": "demo_project",
+  "goal_text": "Help me improve emails",
+  "input_text": "Initial content",
+  "selected_pack_id": "email_assistant",
+  "selected_preset_id": "professional_email"
+}
