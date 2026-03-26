@@ -1,12 +1,36 @@
 from contextlib import contextmanager
 from pathlib import Path
 import shutil
-import tempfile
+from uuid import uuid4
 
+from adaptive_ai_workbench.model.gateway import ModelGateway, TextGenerationRequest, TextGenerationResult
 from adaptive_ai_workbench.services.workbench_service import WorkbenchService
 from adaptive_ai_workbench.settings import Settings
 from adaptive_ai_workbench.ui.controller import AppController
 from adaptive_ai_workbench.ui.state import AppState
+
+
+class StubLiveGateway(ModelGateway):
+    def __init__(self) -> None:
+        self.last_request: TextGenerationRequest | None = None
+
+    def is_configured(self) -> bool:
+        return True
+
+    def build_text_request(self, system_prompt: str, user_prompt: str) -> TextGenerationRequest:
+        return TextGenerationRequest(
+            model="gpt-test-model",
+            instructions=system_prompt,
+            input_text=user_prompt,
+        )
+
+    def generate_text(self, system_prompt: str, user_prompt: str) -> TextGenerationResult:
+        request = self.build_text_request(system_prompt=system_prompt, user_prompt=user_prompt)
+        self.last_request = request
+        return TextGenerationResult(
+            output_text="Live model response for built-in workflow execution.",
+            request=request,
+        )
 
 
 def templates_dir() -> Path:
@@ -14,10 +38,11 @@ def templates_dir() -> Path:
 
 
 @contextmanager
-def scratch_dir() -> Path:
+def scratch_data_dir() -> Path:
     scratch_root = Path(__file__).resolve().parents[1] / ".scratch_runtime"
     scratch_root.mkdir(parents=True, exist_ok=True)
-    path = Path(tempfile.mkdtemp(prefix="aawb_test_", dir=scratch_root))
+    path = scratch_root / f"aawb_test_{uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=True)
     try:
         yield path
     finally:
@@ -27,7 +52,7 @@ def scratch_dir() -> Path:
 
 
 def test_service_preview_builtin_action_uses_goal_input_and_selected_preset() -> None:
-    with scratch_dir() as data_dir:
+    with scratch_data_dir() as data_dir:
         settings = Settings(
             data_dir=data_dir,
             templates_dir=templates_dir(),
@@ -51,8 +76,31 @@ def test_service_preview_builtin_action_uses_goal_input_and_selected_preset() ->
         assert "Need to confirm next Tuesday" in str(preview["user_prompt"])
 
 
-def test_controller_selection_flow_populates_inspector_and_output() -> None:
-    with scratch_dir() as data_dir:
+def test_service_execute_builtin_action_gracefully_handles_unconfigured_model() -> None:
+    with scratch_data_dir() as data_dir:
+        settings = Settings(
+            data_dir=data_dir,
+            templates_dir=templates_dir(),
+            openai_api_key=None,
+            openai_model=None,
+        )
+        service = WorkbenchService(settings)
+
+        result = service.execute_builtin_action(
+            pack_id="email_assistant",
+            action_id="draft_email",
+            goal_text="Write a polished client update",
+            input_text="We fixed the issue and can deploy tomorrow morning.",
+            selected_preset_id="professional_email",
+        )
+
+        assert result["mode"] == "unavailable"
+        assert "OPENAI_API_KEY" in str(result["message"])
+        assert result["preview"]["action_name"] == "Draft Email"
+
+
+def test_controller_selection_flow_populates_inspector_and_unavailable_output() -> None:
+    with scratch_data_dir() as data_dir:
         settings = Settings(
             data_dir=data_dir,
             templates_dir=templates_dir(),
@@ -84,6 +132,37 @@ def test_controller_selection_flow_populates_inspector_and_output() -> None:
             input_text="We fixed the issue and can deploy tomorrow morning.",
         )
 
-        assert "Execution Preview" in state.output_text
+        assert "Live Execution Unavailable" in state.output_text
         assert "Email Assistant" in state.output_text
         assert "Draft Email" in state.output_text
+
+
+def test_controller_run_action_uses_live_gateway_output() -> None:
+    with scratch_data_dir() as data_dir:
+        settings = Settings(
+            data_dir=data_dir,
+            templates_dir=templates_dir(),
+            openai_api_key="unused-by-stub",
+            openai_model="gpt-test-model",
+        )
+        gateway = StubLiveGateway()
+        service = WorkbenchService(settings, gateway=gateway)
+        state = AppState()
+        controller = AppController(service=service, state=state)
+
+        controller.bootstrap()
+        controller.handle_pack_selected("email_assistant")
+        controller.handle_action_selected(
+            action_id="draft_email",
+            goal_text="Write a polished client update",
+            input_text="We fixed the issue and can deploy tomorrow morning.",
+        )
+        controller.handle_run_action(
+            goal_text="Write a polished client update",
+            input_text="We fixed the issue and can deploy tomorrow morning.",
+        )
+
+        assert gateway.last_request is not None
+        assert "Live Execution Result" in state.output_text
+        assert "Live model response for built-in workflow execution." in state.output_text
+        assert "gpt-test-model" in state.output_text

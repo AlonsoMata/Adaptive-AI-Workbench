@@ -21,12 +21,12 @@ The core model is:
 
 `User goal -> Candidate workflow pack -> Validation -> Installed workflow pack -> Safe execution`
 
-In the current version, the app already includes built-in workflow packs and presets. The UI lets you:
+In the current version, the app includes built-in workflow packs and presets. The UI lets you:
 1. Select a built-in pack
 2. Inspect the pack and its actions
 3. Select a preset
 4. Run an action
-5. See a structured execution preview in the Output panel
+5. Get a real generated result when a model is configured, or a graceful fallback with the exact execution request preview when it is not
 
 ## Built-In Workflows
 - `email_assistant`: draft, rewrite, reply to, and translate emails
@@ -48,7 +48,7 @@ pip install -e .[dev]
 ```
 
 3. Copy `.env.example` to `.env`
-4. Add `OPENAI_API_KEY` later if you want model-backed generation and execution features
+4. Set `OPENAI_API_KEY` and optionally adjust `AI_WORKBENCH_MODEL` if you want live built-in execution
 5. Use a Python installation that includes Tkinter/Tcl support for the desktop UI
 
 ## Run

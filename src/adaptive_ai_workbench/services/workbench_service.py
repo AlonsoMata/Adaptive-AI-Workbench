@@ -6,16 +6,16 @@ from typing import Any
 from adaptive_ai_workbench.domain.errors import ValidationFailure
 from adaptive_ai_workbench.domain.models import ActionDefinition, InstalledActionPack, PresetDefinition
 from adaptive_ai_workbench.execution.dispatcher import ExecutionDispatcher
-from adaptive_ai_workbench.model.gateway import OpenAIModelGateway
+from adaptive_ai_workbench.model.gateway import ModelGateway, OpenAIModelGateway
 from adaptive_ai_workbench.persistence.action_pack_store import ActionPackStore
 from adaptive_ai_workbench.persistence.preset_store import PresetStore
 from adaptive_ai_workbench.settings import Settings
 
 
 class WorkbenchService:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, gateway: ModelGateway | None = None) -> None:
         self.settings = settings
-        self.gateway = OpenAIModelGateway(settings)
+        self.gateway = gateway or OpenAIModelGateway(settings)
         self.dispatcher = ExecutionDispatcher()
         self.action_pack_store = ActionPackStore(
             data_dir=settings.data_dir,
@@ -32,8 +32,8 @@ class WorkbenchService:
 
     def health_status(self) -> str:
         if self.gateway.is_configured():
-            return "Model gateway configured."
-        return "Model gateway not configured. UI is available and local templates can be explored."
+            return "Model gateway configured. Built-in workflows can run live against the selected model."
+        return "Model gateway not configured. Built-in workflows will show a graceful execution fallback until OPENAI_API_KEY and AI_WORKBENCH_MODEL are set."
 
     def list_builtin_prompt_names(self) -> list[str]:
         return self._list_template_names(self.settings.templates_dir / "prompts", ".txt")
@@ -102,6 +102,51 @@ class WorkbenchService:
         preview["preset_name"] = preset.name
         preview["preset_id"] = preset.preset_id
         return preview
+
+    def execute_builtin_action(
+        self,
+        pack_id: str,
+        action_id: str,
+        goal_text: str,
+        input_text: str,
+        selected_preset_id: str | None,
+    ) -> dict[str, Any]:
+        preview = self.preview_builtin_action(
+            pack_id=pack_id,
+            action_id=action_id,
+            goal_text=goal_text,
+            input_text=input_text,
+            selected_preset_id=selected_preset_id,
+        )
+
+        if not self.gateway.is_configured():
+            return {
+                "mode": "unavailable",
+                "message": (
+                    "Live execution is unavailable. Configure OPENAI_API_KEY and AI_WORKBENCH_MODEL in .env "
+                    "to run built-in workflows against the model gateway."
+                ),
+                "preview": preview,
+            }
+
+        try:
+            generation = self.gateway.generate_text(
+                system_prompt=str(preview["system_prompt"]),
+                user_prompt=str(preview["user_prompt"]),
+            )
+        except Exception as exc:
+            return {
+                "mode": "error",
+                "message": f"Live execution failed: {exc}",
+                "preview": preview,
+            }
+
+        return {
+            "mode": "live",
+            "output_text": generation.output_text,
+            "preview": preview,
+            "request": generation.request.to_dict(),
+        }
 
     @staticmethod
     def _find_action(pack: InstalledActionPack, action_id: str) -> ActionDefinition:

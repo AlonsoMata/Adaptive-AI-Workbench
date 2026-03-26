@@ -115,17 +115,30 @@ class AppController:
             self.append_status("Select an action before running.")
             return
 
-        preview = self.service.preview_builtin_action(
+        result = self.service.execute_builtin_action(
             pack_id=self.state.selected_pack,
             action_id=self.state.selected_action,
             goal_text=goal_text,
             input_text=input_text,
             selected_preset_id=self.state.selected_preset,
         )
-        self.state.output_text = self._render_execution_result(preview)
-        self.append_status(
-            f"Ran {preview['action_name']} with preset {preview['preset_name']}."
-        )
+        mode = str(result["mode"])
+        preview = result["preview"]
+
+        if mode == "live":
+            self.state.output_text = self._render_live_execution_result(result)
+            self.append_status(
+                f"Ran {preview['action_name']} live with preset {preview['preset_name']}."
+            )
+            return
+
+        if mode == "unavailable":
+            self.state.output_text = self._render_unavailable_result(result)
+            self.append_status(str(result["message"]))
+            return
+
+        self.state.output_text = self._render_error_result(result)
+        self.append_status(str(result["message"]))
 
     def append_status(self, message: str) -> None:
         self.state.status_lines.append(message)
@@ -187,8 +200,39 @@ class AppController:
             f"User Prompt:\n{preview['user_prompt']}"
         )
 
+    @classmethod
+    def _render_live_execution_result(cls, result: dict[str, object]) -> str:
+        preview = result["preview"]
+        request = result["request"]
+        return (
+            "Live Execution Result\n"
+            f"Pack: {preview['pack_name']}\n"
+            f"Action: {preview['action_name']}\n"
+            f"Preset: {preview['preset_name']} ({preview['preset_id']})\n"
+            f"Model: {request['model']}\n\n"
+            "Generated Output:\n"
+            f"{result['output_text']}\n\n"
+            f"{cls._render_preview_block(preview)}"
+        )
+
+    @classmethod
+    def _render_unavailable_result(cls, result: dict[str, object]) -> str:
+        return (
+            "Live Execution Unavailable\n"
+            f"{result['message']}\n\n"
+            f"{cls._render_preview_block(result['preview'])}"
+        )
+
+    @classmethod
+    def _render_error_result(cls, result: dict[str, object]) -> str:
+        return (
+            "Live Execution Failed\n"
+            f"{result['message']}\n\n"
+            f"{cls._render_preview_block(result['preview'])}"
+        )
+
     @staticmethod
-    def _render_execution_result(preview: dict[str, object]) -> str:
+    def _render_preview_block(preview: dict[str, object]) -> str:
         metadata = {
             "pack_id": preview["pack_id"],
             "action_id": preview["action_id"],
@@ -197,8 +241,7 @@ class AppController:
             "preset_id": preview["preset_id"],
         }
         return (
-            "Execution Preview\n"
-            "This workflow currently returns a structured preview instead of a live model response.\n\n"
+            "Execution Request Preview\n"
             f"Pack: {preview['pack_name']}\n"
             f"Action: {preview['action_name']}\n"
             f"Preset: {preview['preset_name']} ({preview['preset_id']})\n\n"

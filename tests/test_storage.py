@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from pathlib import Path
 import shutil
-import tempfile
+from uuid import uuid4
 
 from adaptive_ai_workbench.domain.models import WorkbenchProject
 from adaptive_ai_workbench.persistence.action_pack_store import ActionPackStore
@@ -14,10 +14,11 @@ def templates_dir() -> Path:
 
 
 @contextmanager
-def scratch_dir() -> Path:
+def scratch_data_dir() -> Path:
     scratch_root = Path(__file__).resolve().parents[1] / ".scratch_runtime"
     scratch_root.mkdir(parents=True, exist_ok=True)
-    path = Path(tempfile.mkdtemp(prefix="aawb_test_", dir=scratch_root))
+    path = scratch_root / f"aawb_test_{uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=True)
     try:
         yield path
     finally:
@@ -27,7 +28,7 @@ def scratch_dir() -> Path:
 
 
 def test_action_pack_store_roundtrip_and_builtin_loading() -> None:
-    with scratch_dir() as data_dir:
+    with scratch_data_dir() as data_dir:
         store = ActionPackStore(data_dir=data_dir, templates_dir=templates_dir())
         builtin = store.load_builtin_template("email_assistant")
         save_path = store.save_installed(builtin)
@@ -50,7 +51,7 @@ def test_preset_store_loads_builtin_presets() -> None:
 
 
 def test_project_store_roundtrip() -> None:
-    with scratch_dir() as data_dir:
+    with scratch_data_dir() as data_dir:
         store = ProjectStore(data_dir=data_dir)
         project = WorkbenchProject(
             project_id="demo_project",
