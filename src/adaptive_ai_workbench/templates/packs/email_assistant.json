@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0",
+  "pack_id": "email_assistant",
+  "name": "Email Assistant",
+  "description": "A reusable workflow pack for drafting, rewriting, replying to, and translating professional emails.",
+  "source": "template",
+  "origin_goal": "Help me write better professional emails.",
+  "installed_at": "2026-03-25T00:00:00+00:00",
+  "enabled": true,
+  "actions": [
+    {
+      "action_id": "draft_email",
+      "name": "Draft Email",
+      "description": "Turn raw notes into a polished email draft.",
+      "kind": "template_fill",
+      "enabled": true,
+      "rationale": "Drafting is the fastest way to turn rough intent into a sendable message.",
+      "input_mode": "single_text",
+      "fields": [],
+      "system_prompt": "You are an expert email assistant. Write with tone={tone}, language={language}, style={output_style}, length={length}.",
+      "user_prompt_template": "Goal: {goal_text}\nDraft an email from these notes:\n{input_text}",
+      "default_preset_id": "professional_email",
+      "tags": ["email", "drafting"]
+    },
+    {
+      "action_id": "rewrite_email",
+      "name": "Rewrite Email",
+      "description": "Improve clarity, structure, and tone of an existing email.",
+      "kind": "text_rewrite",
+      "enabled": true,
+      "rationale": "Users often already have a draft and need stronger wording rather than a full rewrite from scratch.",
+      "input_mode": "single_text",
+      "fields": [],
+      "system_prompt": "You improve email drafts while preserving intent. Use tone={tone}, language={language}, style={output_style}, length={length}.",
+      "user_prompt_template": "Goal: {goal_text}\nRewrite this email to make it clearer and more effective:\n{input_text}",
+      "default_preset_id": "professional_email",
+      "tags": ["email", "rewrite"]
+    },
+    {
+      "action_id": "reply_to_email",
+      "name": "Reply to Email",
+      "description": "Draft a professional reply based on the incoming message and user intent.",
+      "kind": "prompt_transform",
+      "enabled": true,
+      "rationale": "Reply generation is a high-frequency workflow for email-heavy users.",
+      "input_mode": "text_with_instruction",
+      "fields": [],
+      "system_prompt": "You write thoughtful email replies. Follow tone={tone}, language={language}, style={output_style}, length={length}.",
+      "user_prompt_template": "Goal: {goal_text}\nIncoming email and reply notes:\n{input_text}\nReply instruction: {instruction_text}",
+      "default_preset_id": "professional_email",
+      "tags": ["email", "reply"]
+    },
+    {
+      "action_id": "translate_email",
+      "name": "Translate Email",
+      "description": "Translate email content while keeping intent and professional tone intact.",
+      "kind": "translation",
+      "enabled": true,
+      "rationale": "Translation is a common adjacent workflow for cross-language communication.",
+      "input_mode": "single_text",
+      "fields": [],
+      "system_prompt": "You translate professional email content into {language} while preserving meaning, tone={tone}, style={output_style}, and length={length}.",
+      "user_prompt_template": "Goal: {goal_text}\nTranslate this email content:\n{input_text}",
+      "default_preset_id": "professional_email",
+      "tags": ["email", "translation"]
+    }
+  ],
+  "recommended_preset_ids": [
+    "professional_email"
+  ]
+}

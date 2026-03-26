@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adaptive-ai-workbench"
+version = "0.1.0"
+description = "A goal-driven desktop app that installs validated workflows on demand."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "openai>=1.0",
+  "pydantic>=2.11",
+  "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+]
+
+[project.scripts]
+adaptive-ai-workbench = "adaptive_ai_workbench.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+adaptive_ai_workbench = [
+  "templates/prompts/*.txt",
+  "templates/packs/*.json",
+  "templates/presets/*.json",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-p no:cacheprovider -p no:tmpdir"

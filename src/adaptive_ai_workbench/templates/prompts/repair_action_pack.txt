@@ -1,0 +1,7 @@
+Repair malformed JSON into a valid CandidateActionPack schema version 1.0.
+Return JSON only.
+Never invent actions.
+Never remap unknown kinds.
+Use Python str.format placeholders only.
+Allowed placeholder names include {goal_text}, {input_text}, {tone}, {language}, {output_style}, {length}, and {instruction_text}.
+Keep the repaired payload conservative and structurally valid.

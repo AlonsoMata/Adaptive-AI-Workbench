@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "preset_id": "concise_cv",
+  "name": "Concise CV",
+  "description": "Focused, ATS-friendly phrasing for CV improvements.",
+  "tone": "confident",
+  "language": "en",
+  "output_style": "concise",
+  "length": "short"
+}
