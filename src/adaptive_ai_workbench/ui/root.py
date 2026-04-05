@@ -1,9 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
 
 from adaptive_ai_workbench.settings import Settings
+from adaptive_ai_workbench.ui.background_tasks import run_background
 from adaptive_ai_workbench.ui.controller import AppController
 from adaptive_ai_workbench.ui.state import AppState
 from adaptive_ai_workbench.ui.widgets import (
@@ -40,11 +41,16 @@ class WorkbenchRoot(tk.Tk):
 
         toolbar = ttk.Frame(self)
         toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", padx=12, pady=(12, 6))
-        ttk.Button(toolbar, text="Refresh Catalog", command=self._on_refresh).pack(side="left")
-        ttk.Button(toolbar, text="Generate Workflow", command=self._on_generate_workflow).pack(side="left", padx=(8, 0))
-        ttk.Button(toolbar, text="Install Workflow", command=self._on_install_workflow).pack(side="left", padx=(8, 0))
-        ttk.Button(toolbar, text="Run Action", command=self._on_run_action).pack(side="left", padx=(8, 0))
-        ttk.Button(toolbar, text="Clear Output", command=self._on_clear_output).pack(side="left", padx=(8, 0))
+        self.refresh_button = ttk.Button(toolbar, text="Refresh Catalog", command=self._on_refresh)
+        self.refresh_button.pack(side="left")
+        self.generate_button = ttk.Button(toolbar, text="Generate Workflow", command=self._on_generate_workflow)
+        self.generate_button.pack(side="left", padx=(8, 0))
+        self.install_button = ttk.Button(toolbar, text="Install Workflow", command=self._on_install_workflow)
+        self.install_button.pack(side="left", padx=(8, 0))
+        self.run_button = ttk.Button(toolbar, text="Run Action", command=self._on_run_action)
+        self.run_button.pack(side="left", padx=(8, 0))
+        self.clear_button = ttk.Button(toolbar, text="Clear Output", command=self._on_clear_output)
+        self.clear_button.pack(side="left", padx=(8, 0))
 
         goal_frame, self.goal_text = build_goal_panel(self)
         goal_frame.grid(row=1, column=0, sticky="nsew", padx=(12, 6), pady=(0, 6))
@@ -70,9 +76,26 @@ class WorkbenchRoot(tk.Tk):
         self._refresh_from_state()
 
     def _on_generate_workflow(self) -> None:
-        self.controller.handle_generate_workflow(
+        task = self.controller.begin_generate_workflow(
             goal_text=self._read_text_widget(self.goal_text),
         )
+        self._refresh_from_state()
+        if task is None:
+            return
+
+        run_background(
+            root=self,
+            task=task,
+            on_success=self._on_generate_workflow_success,
+            on_error=self._on_generate_workflow_error,
+        )
+
+    def _on_generate_workflow_success(self, candidate: object) -> None:
+        self.controller.finish_generate_workflow(candidate)
+        self._refresh_from_state()
+
+    def _on_generate_workflow_error(self, error: Exception) -> None:
+        self.controller.fail_generate_workflow(error)
         self._refresh_from_state()
 
     def _on_install_workflow(self) -> None:
@@ -80,10 +103,27 @@ class WorkbenchRoot(tk.Tk):
         self._refresh_from_state()
 
     def _on_run_action(self) -> None:
-        self.controller.handle_run_action(
+        task = self.controller.begin_run_action(
             goal_text=self._read_text_widget(self.goal_text),
             input_text=self._read_text_widget(self.input_text),
         )
+        self._refresh_from_state()
+        if task is None:
+            return
+
+        run_background(
+            root=self,
+            task=task,
+            on_success=self._on_run_action_success,
+            on_error=self._on_run_action_error,
+        )
+
+    def _on_run_action_success(self, result: object) -> None:
+        self.controller.finish_run_action(result)
+        self._refresh_from_state()
+
+    def _on_run_action_error(self, error: Exception) -> None:
+        self.controller.fail_run_action(error)
         self._refresh_from_state()
 
     def _on_clear_output(self) -> None:
@@ -125,8 +165,20 @@ class WorkbenchRoot(tk.Tk):
             self._sync_listbox(self.action_list, self.state.available_actions, self.state.selected_action)
             self._sync_listbox(self.preset_list, self.state.available_presets, self.state.selected_preset)
             self._sync_readonly_widget(self.status_text, "\n".join(self.state.status_lines))
+            self._sync_busy_state()
         finally:
             self._syncing = False
+
+    def _sync_busy_state(self) -> None:
+        busy = self.state.busy
+        self.refresh_button.configure(state="disabled" if busy else "normal")
+        self.generate_button.configure(state="disabled" if busy else "normal")
+        self.install_button.configure(state="disabled" if busy else "normal")
+        self.run_button.configure(state="disabled" if busy else "normal")
+        self.pack_list.configure(state="disabled" if busy else "normal")
+        self.action_list.configure(state="disabled" if busy else "normal")
+        self.preset_list.configure(state="disabled" if busy else "normal")
+        self.title(f"{self.settings.app_name} {'(Working...)' if busy else ''}".rstrip())
 
     @staticmethod
     def _sync_output_widget(widget: tk.Text, content: str) -> None:
