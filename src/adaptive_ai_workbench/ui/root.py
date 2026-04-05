@@ -41,6 +41,8 @@ class WorkbenchRoot(tk.Tk):
         toolbar = ttk.Frame(self)
         toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", padx=12, pady=(12, 6))
         ttk.Button(toolbar, text="Refresh Catalog", command=self._on_refresh).pack(side="left")
+        ttk.Button(toolbar, text="Generate Workflow", command=self._on_generate_workflow).pack(side="left", padx=(8, 0))
+        ttk.Button(toolbar, text="Install Workflow", command=self._on_install_workflow).pack(side="left", padx=(8, 0))
         ttk.Button(toolbar, text="Run Action", command=self._on_run_action).pack(side="left", padx=(8, 0))
         ttk.Button(toolbar, text="Clear Output", command=self._on_clear_output).pack(side="left", padx=(8, 0))
 
@@ -65,6 +67,16 @@ class WorkbenchRoot(tk.Tk):
 
     def _on_refresh(self) -> None:
         self.controller.handle_refresh_catalog()
+        self._refresh_from_state()
+
+    def _on_generate_workflow(self) -> None:
+        self.controller.handle_generate_workflow(
+            goal_text=self._read_text_widget(self.goal_text),
+        )
+        self._refresh_from_state()
+
+    def _on_install_workflow(self) -> None:
+        self.controller.handle_install_candidate()
         self._refresh_from_state()
 
     def _on_run_action(self) -> None:

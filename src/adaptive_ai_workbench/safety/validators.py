@@ -30,7 +30,7 @@ def install_candidate_pack(
             installed_at=datetime.now(timezone.utc).isoformat(),
             enabled=True,
             actions=validated.actions,
-            recommended_preset_ids=[],
+            recommended_preset_ids=validated.recommended_preset_ids,
         )
     except Exception as exc:
         raise ValidationFailure(f"Installed pack conversion failed: {exc}") from exc

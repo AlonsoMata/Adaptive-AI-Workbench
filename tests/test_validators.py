@@ -12,6 +12,7 @@ def build_candidate() -> CandidateActionPack:
         title="Client Email Workflow",
         summary="Validated workflow for drafting and rewriting emails.",
         reasoning="The goal is email-focused.",
+        recommended_preset_ids=["professional_email"],
         actions=[
             ActionDefinition(
                 action_id="draft_email",
@@ -31,13 +32,14 @@ def build_candidate() -> CandidateActionPack:
     )
 
 
-def test_install_candidate_pack_preserves_actions_and_source() -> None:
+def test_install_candidate_pack_preserves_actions_source_and_presets() -> None:
     installed = install_candidate_pack(build_candidate(), source=PackSource.generated)
 
     assert installed.pack_id == "client_email_workflow"
     assert installed.name == "Client Email Workflow"
     assert installed.source is PackSource.generated
     assert installed.actions[0].action_id == "draft_email"
+    assert installed.recommended_preset_ids == ["professional_email"]
 
 
 def test_install_candidate_pack_uses_timezone_aware_utc_timestamp() -> None:

@@ -15,6 +15,7 @@ def build_payload() -> dict[str, object]:
         "summary": "Validated workflow for drafting and rewriting emails.",
         "reasoning": "The goal is email-focused.",
         "warnings": [],
+        "recommended_preset_ids": ["professional_email"],
         "actions": [
             {
                 "action_id": "draft_email",
@@ -37,6 +38,7 @@ def build_payload() -> dict[str, object]:
 def test_parse_clean_json() -> None:
     candidate = parse_candidate_action_pack(json.dumps(build_payload()))
     assert candidate.pack_id == "client_email_workflow"
+    assert candidate.recommended_preset_ids == ["professional_email"]
 
 
 def test_parse_json_wrapped_in_text() -> None:

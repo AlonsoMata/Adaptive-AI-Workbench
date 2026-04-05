@@ -97,6 +97,7 @@ class CandidateActionPack(StrictModel):
     reasoning: str
     warnings: list[str] = Field(default_factory=list)
     actions: list[ActionDefinition]
+    recommended_preset_ids: list[str] = Field(default_factory=list)
 
     @field_validator("schema_version")
     @classmethod
@@ -109,6 +110,11 @@ class CandidateActionPack(StrictModel):
     @classmethod
     def validate_pack_id(cls, value: str) -> str:
         return _validate_slug(value, "pack_id")
+
+    @field_validator("recommended_preset_ids")
+    @classmethod
+    def validate_recommended_preset_ids(cls, values: list[str]) -> list[str]:
+        return [_validate_slug(value, "recommended_preset_id") for value in values]
 
     @model_validator(mode="after")
     def validate_actions(self) -> "CandidateActionPack":

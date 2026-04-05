@@ -1,4 +1,5 @@
 .env
+improvements.txt
 .venv/
 __pycache__/
 *.py[cod]

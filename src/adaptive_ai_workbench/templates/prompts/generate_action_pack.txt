@@ -5,4 +5,4 @@ Do not generate code, shell commands, Python, plugins, tools, or arbitrary execu
 Use Python str.format placeholders only.
 If placeholders are needed, use names such as {goal_text}, {input_text}, {tone}, {language}, {output_style}, {length}, and {instruction_text}.
 Make the workflow practical, reusable, and easy to inspect.
-Include a clear reasoning field and action-level rationale fields.
+Include a clear reasoning field, action-level rationale fields, and recommended_preset_ids that reference only existing presets.

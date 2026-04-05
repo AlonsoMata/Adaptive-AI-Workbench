@@ -5,12 +5,14 @@ Adaptive AI Workbench is a goal-driven desktop app that installs validated workf
 ## What It Is
 - A local-first Python desktop app with a Tkinter UI
 - A workflow workbench for writing, CV improvement, code help, and meeting notes
-- A structured system that uses validated workflow packs instead of arbitrary generated code
+- A fixed execution engine that generates and installs workflow packs as validated data, not source code
 
 ## Why It Exists
 Most AI productivity apps either hardcode a small feature set or hide too much behind agent behavior. This project explores a more credible product shape:
 - the user provides a goal
-- the app installs or activates a workflow pack
+- the app generates a candidate workflow pack
+- the candidate is parsed, validated, and reviewed
+- the user explicitly installs the pack
 - actions stay within approved categories
 - execution remains visible, reviewable, and safe
 
@@ -19,14 +21,16 @@ That makes the project useful both as a practical tool and as a portfolio exampl
 ## How It Works
 The core model is:
 
-`User goal -> Candidate workflow pack -> Validation -> Installed workflow pack -> Safe execution`
+`User goal -> Candidate workflow pack -> Validation and repair -> Installed workflow pack -> Safe execution`
 
-In the current version, the app includes built-in workflow packs and presets. The UI lets you:
-1. Select a built-in pack
-2. Inspect the pack and its actions
-3. Select a preset
-4. Run an action
-5. Get a real generated result when a model is configured, or a graceful fallback with the exact execution request preview when it is not
+In the current version, the app includes built-in workflow packs and can also generate new candidate workflow packs from the Goal field. The UI lets you:
+1. Describe a goal
+2. Generate a candidate workflow pack from that goal
+3. Inspect the candidate's title, summary, reasoning, warnings, recommended presets, and actions
+4. Install the candidate into the workflow catalog
+5. Select an installed pack and action
+6. Run the action safely through the existing dispatcher and model gateway
+7. Get a real generated result when the model is configured, or a graceful fallback when it is not
 
 ## Built-In Workflows
 - `email_assistant`: draft, rewrite, reply to, and translate emails
@@ -48,7 +52,7 @@ pip install -e .[dev]
 ```
 
 3. Copy `.env.example` to `.env`
-4. Set `OPENAI_API_KEY` and optionally adjust `AI_WORKBENCH_MODEL` if you want live built-in execution
+4. Set `OPENAI_API_KEY` and optionally adjust `AI_WORKBENCH_MODEL` if you want goal-based workflow generation and live execution
 5. Use a Python installation that includes Tkinter/Tcl support for the desktop UI
 
 ## Run
@@ -61,5 +65,5 @@ python -m adaptive_ai_workbench
 Run the test suite with:
 
 ```bash
-python -m pytest -q
+PYTHONDONTWRITEBYTECODE=1 python -m pytest -q
 ```

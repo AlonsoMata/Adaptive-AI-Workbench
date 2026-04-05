@@ -3,12 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from adaptive_ai_workbench.domain.errors import ValidationFailure
-from adaptive_ai_workbench.domain.models import ActionDefinition, InstalledActionPack, PresetDefinition
+from adaptive_ai_workbench.domain.errors import ConfigurationError, StorageError, ValidationFailure
+from adaptive_ai_workbench.domain.models import ActionDefinition, CandidateActionPack, InstalledActionPack, PresetDefinition
 from adaptive_ai_workbench.execution.dispatcher import ExecutionDispatcher
 from adaptive_ai_workbench.model.gateway import ModelGateway, OpenAIModelGateway
+from adaptive_ai_workbench.model.prompt_loader import load_prompt
 from adaptive_ai_workbench.persistence.action_pack_store import ActionPackStore
 from adaptive_ai_workbench.persistence.preset_store import PresetStore
+from adaptive_ai_workbench.planning.goal_analyzer import normalize_goal_text
+from adaptive_ai_workbench.planning.workflow_generator import build_candidate_generation_prompt
+from adaptive_ai_workbench.safety.parsing import parse_candidate_action_pack
+from adaptive_ai_workbench.safety.validators import validate_candidate_pack
 from adaptive_ai_workbench.settings import Settings
 
 
@@ -32,8 +37,8 @@ class WorkbenchService:
 
     def health_status(self) -> str:
         if self.gateway.is_configured():
-            return "Model gateway configured. Built-in workflows can run live against the selected model."
-        return "Model gateway not configured. Built-in workflows will show a graceful execution fallback until OPENAI_API_KEY and AI_WORKBENCH_MODEL are set."
+            return "Model gateway configured. You can generate workflow packs from a goal and run installed workflows live."
+        return "Model gateway not configured. You can inspect built-in workflows locally, but workflow generation and live execution require OPENAI_API_KEY and AI_WORKBENCH_MODEL."
 
     def list_builtin_prompt_names(self) -> list[str]:
         return self._list_template_names(self.settings.templates_dir / "prompts", ".txt")
@@ -53,8 +58,20 @@ class WorkbenchService:
     def list_builtin_presets_detailed(self) -> list[PresetDefinition]:
         return self.preset_store.list_builtin()
 
+    def list_catalog_packs_detailed(self) -> list[InstalledActionPack]:
+        catalog = {pack.pack_id: pack for pack in self.list_builtin_packs_detailed()}
+        for pack in self.action_pack_store.list_installed():
+            catalog[pack.pack_id] = pack
+        return sorted(catalog.values(), key=lambda pack: pack.name.lower())
+
     def get_builtin_pack(self, pack_id: str) -> InstalledActionPack:
         return self.action_pack_store.load_builtin_template(pack_id)
+
+    def get_catalog_pack(self, pack_id: str) -> InstalledActionPack:
+        try:
+            return self.action_pack_store.load_installed(pack_id)
+        except StorageError:
+            return self.action_pack_store.load_builtin_template(pack_id)
 
     def get_builtin_preset(self, preset_id: str) -> PresetDefinition:
         return self.preset_store.load_builtin(preset_id)
@@ -79,7 +96,39 @@ class WorkbenchService:
             raise ValidationFailure("No built-in presets are available.")
         return presets[0]
 
-    def preview_builtin_action(
+    def generate_candidate_workflow(self, goal_text: str) -> CandidateActionPack:
+        normalized_goal = normalize_goal_text(goal_text)
+        if not normalized_goal:
+            raise ValidationFailure("Enter a goal before generating a workflow.")
+        if not self.gateway.is_configured():
+            raise ConfigurationError(
+                "Workflow generation is unavailable because OPENAI_API_KEY or AI_WORKBENCH_MODEL is not configured."
+            )
+
+        generation_prompt = build_candidate_generation_prompt(
+            goal_text=normalized_goal,
+            system_prompt=load_prompt("generate_action_pack", self.settings.templates_dir),
+            presets=self.list_builtin_presets_detailed(),
+        )
+        result = self.gateway.generate_text(
+            system_prompt=generation_prompt.system_prompt,
+            user_prompt=generation_prompt.user_prompt,
+        )
+        candidate = parse_candidate_action_pack(result.output_text)
+        validated_candidate = validate_candidate_pack(candidate)
+        self._validate_candidate_presets(validated_candidate)
+        return validated_candidate
+
+    def install_candidate_workflow(self, candidate: CandidateActionPack) -> InstalledActionPack:
+        validated_candidate = validate_candidate_pack(candidate)
+        self._validate_candidate_presets(validated_candidate)
+        if validated_candidate.pack_id in {pack.pack_id for pack in self.list_catalog_packs_detailed()}:
+            raise ValidationFailure(
+                f"A workflow pack with id '{validated_candidate.pack_id}' already exists in the catalog."
+            )
+        return self.action_pack_store.install_candidate(validated_candidate)
+
+    def preview_action(
         self,
         pack_id: str,
         action_id: str,
@@ -87,7 +136,7 @@ class WorkbenchService:
         input_text: str,
         selected_preset_id: str | None,
     ) -> dict[str, Any]:
-        pack = self.get_builtin_pack(pack_id)
+        pack = self.get_catalog_pack(pack_id)
         action = self._find_action(pack, action_id)
         preset = self.resolve_preset_for_action(pack, action, selected_preset_id)
         preview = self.dispatcher.dispatch(
@@ -103,7 +152,7 @@ class WorkbenchService:
         preview["preset_id"] = preset.preset_id
         return preview
 
-    def execute_builtin_action(
+    def preview_builtin_action(
         self,
         pack_id: str,
         action_id: str,
@@ -111,7 +160,23 @@ class WorkbenchService:
         input_text: str,
         selected_preset_id: str | None,
     ) -> dict[str, Any]:
-        preview = self.preview_builtin_action(
+        return self.preview_action(
+            pack_id=pack_id,
+            action_id=action_id,
+            goal_text=goal_text,
+            input_text=input_text,
+            selected_preset_id=selected_preset_id,
+        )
+
+    def execute_action(
+        self,
+        pack_id: str,
+        action_id: str,
+        goal_text: str,
+        input_text: str,
+        selected_preset_id: str | None,
+    ) -> dict[str, Any]:
+        preview = self.preview_action(
             pack_id=pack_id,
             action_id=action_id,
             goal_text=goal_text,
@@ -124,7 +189,7 @@ class WorkbenchService:
                 "mode": "unavailable",
                 "message": (
                     "Live execution is unavailable. Configure OPENAI_API_KEY and AI_WORKBENCH_MODEL in .env "
-                    "to run built-in workflows against the model gateway."
+                    "to run installed workflows against the model gateway."
                 ),
                 "preview": preview,
             }
@@ -147,6 +212,42 @@ class WorkbenchService:
             "preview": preview,
             "request": generation.request.to_dict(),
         }
+
+    def execute_builtin_action(
+        self,
+        pack_id: str,
+        action_id: str,
+        goal_text: str,
+        input_text: str,
+        selected_preset_id: str | None,
+    ) -> dict[str, Any]:
+        return self.execute_action(
+            pack_id=pack_id,
+            action_id=action_id,
+            goal_text=goal_text,
+            input_text=input_text,
+            selected_preset_id=selected_preset_id,
+        )
+
+    def _validate_candidate_presets(self, candidate: CandidateActionPack) -> None:
+        valid_preset_ids = {preset.preset_id for preset in self.list_builtin_presets_detailed()}
+        invalid_recommended = [preset_id for preset_id in candidate.recommended_preset_ids if preset_id not in valid_preset_ids]
+        if invalid_recommended:
+            raise ValidationFailure(
+                "Candidate workflow references unknown recommended presets: "
+                + ", ".join(sorted(invalid_recommended))
+            )
+
+        invalid_defaults = [
+            action.default_preset_id
+            for action in candidate.actions
+            if action.default_preset_id and action.default_preset_id not in valid_preset_ids
+        ]
+        if invalid_defaults:
+            raise ValidationFailure(
+                "Candidate workflow references unknown action default presets: "
+                + ", ".join(sorted(set(invalid_defaults)))
+            )
 
     @staticmethod
     def _find_action(pack: InstalledActionPack, action_id: str) -> ActionDefinition:

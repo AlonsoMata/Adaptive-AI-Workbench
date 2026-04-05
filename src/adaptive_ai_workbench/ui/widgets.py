@@ -53,7 +53,7 @@ def build_inspector(parent: ttk.Frame) -> tuple[ttk.Frame, tk.Text]:
     text = tk.Text(frame, height=8, wrap="word")
     text.insert(
         "1.0",
-        "Select a built-in pack to inspect its details, then select an action to preview its execution flow.",
+        "Describe a goal and click Generate Workflow to preview a candidate pack, or select an installed pack to inspect its actions.",
     )
     text.configure(state="disabled")
     text.pack(fill="both", expand=True, padx=8, pady=8)

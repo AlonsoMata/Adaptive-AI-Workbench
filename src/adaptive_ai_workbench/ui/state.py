@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from adaptive_ai_workbench.domain.models import CandidateActionPack
+
 
 @dataclass(slots=True)
 class AppState:
@@ -16,4 +18,5 @@ class AppState:
     selected_pack: str | None = None
     selected_action: str | None = None
     selected_preset: str | None = None
+    candidate_pack: CandidateActionPack | None = None
     busy: bool = False

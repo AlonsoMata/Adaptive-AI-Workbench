@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import json
 
-from adaptive_ai_workbench.domain.errors import ValidationFailure
-from adaptive_ai_workbench.domain.models import ActionDefinition, InstalledActionPack, PresetDefinition
+from adaptive_ai_workbench.domain.errors import ConfigurationError, ValidationFailure, WorkbenchError
+from adaptive_ai_workbench.domain.models import (
+    ActionDefinition,
+    CandidateActionPack,
+    InstalledActionPack,
+    PresetDefinition,
+)
 from adaptive_ai_workbench.services.workbench_service import WorkbenchService
 from adaptive_ai_workbench.ui.state import AppState
 
@@ -20,7 +25,7 @@ class AppController:
         self.append_status(self.service.health_status())
         self.append_status(
             f"Discovered {len(self.service.list_builtin_prompt_names())} prompt templates, "
-            f"{len(self.state.available_packs)} packs, and {len(self.state.available_presets)} presets."
+            f"{len(self.state.available_packs)} installed packs, and {len(self.state.available_presets)} presets."
         )
         if self.state.available_presets and self.state.selected_preset is None:
             self.state.selected_preset = self.state.available_presets[0]
@@ -52,6 +57,44 @@ class AppController:
         self.state.output_text = ""
         self.append_status("Output cleared.")
 
+    def handle_generate_workflow(self, goal_text: str) -> None:
+        self.state.goal_text = goal_text
+        try:
+            candidate = self.service.generate_candidate_workflow(goal_text)
+        except ConfigurationError as exc:
+            self.state.candidate_pack = None
+            self.state.inspector_text = self._render_generation_error("Workflow Generation Unavailable", str(exc))
+            self.append_status(str(exc))
+            return
+        except WorkbenchError as exc:
+            self.state.candidate_pack = None
+            self.state.inspector_text = self._render_generation_error("Workflow Generation Failed", str(exc))
+            self.append_status(f"Workflow generation failed: {exc}")
+            return
+
+        self.state.candidate_pack = candidate
+        self.state.inspector_text = self._render_candidate_details(candidate)
+        self.append_status(
+            f"Generated candidate workflow: {candidate.title}. Review it and install when ready."
+        )
+
+    def handle_install_candidate(self) -> None:
+        if self.state.candidate_pack is None:
+            self.append_status("Generate a candidate workflow before installing it.")
+            return
+
+        try:
+            installed = self.service.install_candidate_workflow(self.state.candidate_pack)
+        except WorkbenchError as exc:
+            self.state.inspector_text = self._render_generation_error("Workflow Installation Failed", str(exc))
+            self.append_status(f"Workflow installation failed: {exc}")
+            return
+
+        self.state.candidate_pack = None
+        self._reload_catalog()
+        self.handle_pack_selected(installed.pack_id)
+        self.append_status(f"Installed workflow pack: {installed.name}.")
+
     def handle_pack_selected(self, pack_id: str | None) -> None:
         if not pack_id or pack_id not in self._packs:
             return
@@ -63,7 +106,7 @@ class AppController:
         if pack.recommended_preset_ids and self.state.selected_preset not in pack.recommended_preset_ids:
             self.state.selected_preset = pack.recommended_preset_ids[0]
         self.state.inspector_text = self._render_pack_details(pack)
-        self.append_status(f"Selected pack: {pack.name}")
+        self.append_status(f"Selected installed pack: {pack.name}")
 
     def handle_action_selected(self, action_id: str | None, goal_text: str, input_text: str) -> None:
         if not action_id or not self.state.selected_pack:
@@ -74,7 +117,7 @@ class AppController:
             return
 
         action = self._find_action(pack, action_id)
-        preview = self.service.preview_builtin_action(
+        preview = self.service.preview_action(
             pack_id=pack.pack_id,
             action_id=action.action_id,
             goal_text=goal_text,
@@ -109,13 +152,13 @@ class AppController:
         self.state.input_text = input_text
 
         if not self.state.selected_pack:
-            self.append_status("Select a built-in pack before running an action.")
+            self.append_status("Select an installed workflow pack before running an action.")
             return
         if not self.state.selected_action:
             self.append_status("Select an action before running.")
             return
 
-        result = self.service.execute_builtin_action(
+        result = self.service.execute_action(
             pack_id=self.state.selected_pack,
             action_id=self.state.selected_action,
             goal_text=goal_text,
@@ -144,7 +187,7 @@ class AppController:
         self.state.status_lines.append(message)
 
     def _reload_catalog(self) -> None:
-        packs = self.service.list_builtin_packs_detailed()
+        packs = self.service.list_catalog_packs_detailed()
         presets = self.service.list_builtin_presets_detailed()
         self._packs = {pack.pack_id: pack for pack in packs}
         self._presets = {preset.preset_id: preset for preset in presets}
@@ -169,6 +212,7 @@ class AppController:
     def _render_pack_details(pack: InstalledActionPack) -> str:
         action_lines = "\n".join(f"- {action.name} ({action.kind.value})" for action in pack.actions)
         return (
+            f"Installed Workflow\n"
             f"Pack Name: {pack.name}\n"
             f"Pack ID: {pack.pack_id}\n"
             f"Description: {pack.description}\n"
@@ -186,7 +230,7 @@ class AppController:
         preview: dict[str, object],
     ) -> str:
         return (
-            f"Pack: {pack.name}\n"
+            f"Installed Workflow: {pack.name}\n"
             f"Action Name: {action.name}\n"
             f"Action ID: {action.action_id}\n"
             f"Kind: {action.kind.value}\n"
@@ -199,6 +243,35 @@ class AppController:
             f"System Prompt:\n{preview['system_prompt']}\n\n"
             f"User Prompt:\n{preview['user_prompt']}"
         )
+
+    @staticmethod
+    def _render_candidate_details(candidate: CandidateActionPack) -> str:
+        action_lines = []
+        for action in candidate.actions:
+            action_lines.append(
+                f"- {action.name} ({action.kind.value})\n"
+                f"  Description: {action.description}\n"
+                f"  Rationale: {action.rationale}\n"
+                f"  Default Preset: {action.default_preset_id or 'None'}"
+            )
+        warnings = "\n".join(f"- {warning}" for warning in candidate.warnings) or "None"
+        recommended_presets = ", ".join(candidate.recommended_preset_ids) or "None"
+        generated_actions = "\n\n".join(action_lines)
+        return (
+            "Candidate Workflow\n"
+            "Status: Candidate only. Review before installation.\n"
+            f"Pack Title: {candidate.title}\n"
+            f"Pack ID: {candidate.pack_id}\n"
+            f"Summary: {candidate.summary}\n"
+            f"Reasoning: {candidate.reasoning}\n"
+            f"Warnings:\n{warnings}\n\n"
+            f"Recommended Presets: {recommended_presets}\n\n"
+            f"Generated Actions:\n{generated_actions}"
+        )
+
+    @staticmethod
+    def _render_generation_error(title: str, message: str) -> str:
+        return f"{title}\n{message}"
 
     @classmethod
     def _render_live_execution_result(cls, result: dict[str, object]) -> str:

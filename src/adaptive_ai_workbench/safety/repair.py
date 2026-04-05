@@ -11,6 +11,7 @@ TOP_LEVEL_KEYS = {
     "reasoning",
     "warnings",
     "actions",
+    "recommended_preset_ids",
 }
 ACTION_KEYS = {
     "action_id",
