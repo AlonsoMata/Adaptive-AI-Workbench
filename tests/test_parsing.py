@@ -15,7 +15,7 @@ def build_payload() -> dict[str, object]:
         "summary": "Validated workflow for drafting and rewriting emails.",
         "reasoning": "The goal is email-focused.",
         "warnings": [],
-        "recommended_preset_ids": ["professional_email"],
+        "recommended_preset_ids": ["professional_clear"],
         "actions": [
             {
                 "action_id": "draft_email",
@@ -26,9 +26,9 @@ def build_payload() -> dict[str, object]:
                 "rationale": "Drafting is a core need for this goal.",
                 "input_mode": "single_text",
                 "fields": [],
-                "system_prompt": "You are an expert email assistant. Write with tone={tone}, language={language}, style={output_style}, length={length}.",
+                "system_prompt": "You are an expert email assistant. Write with tone={tone}, language={language}, style={output_style}, length={length}, format={format}, strictness={strictness}.",
                 "user_prompt_template": "Goal: {goal_text}\nInput:\n{input_text}",
-                "default_preset_id": "professional_email",
+                "default_preset_id": "professional_clear",
                 "tags": ["email", "drafting"],
             }
         ],
@@ -38,7 +38,7 @@ def build_payload() -> dict[str, object]:
 def test_parse_clean_json() -> None:
     candidate = parse_candidate_action_pack(json.dumps(build_payload()))
     assert candidate.pack_id == "client_email_workflow"
-    assert candidate.recommended_preset_ids == ["professional_email"]
+    assert candidate.recommended_preset_ids == ["professional_clear"]
 
 
 def test_parse_json_wrapped_in_text() -> None:
@@ -75,6 +75,21 @@ def test_parse_prefers_full_candidate_object_over_earlier_partial_object() -> No
     assert candidate.title == "Client Email Workflow"
 
 
+
+def test_parse_surfaces_clear_message_for_truncated_candidate_after_partial_object() -> None:
+    raw_output = (
+        '{"schema_version": "1.0"}\n'
+        '{"schema_version": "1.0", "pack_id": "vgc_team_builder", "goal": "Help me build a Pokemon team", '
+        '"title": "VGC Team Builder", "summary": "Build a competitive team", "reasoning": "The user wants a competitive team", "actions": ['
+    )
+
+    with pytest.raises(ModelOutputError) as error:
+        parse_candidate_action_pack(raw_output)
+
+    message = str(error.value)
+    assert "appears to contain an incomplete candidate workflow JSON object" in message
+    assert "Model output snippet:" in message
+    assert "vgc_team_builder" in message
 def test_parse_raises_when_json_is_missing() -> None:
     with pytest.raises(ModelOutputError):
         parse_candidate_action_pack("No structured payload here.")
@@ -118,7 +133,7 @@ def test_parse_surfaces_clear_message_for_missing_required_action_fields() -> No
             "rationale": "This should fail validation.",
             "input_mode": "single_text",
             "fields": [],
-            "default_preset_id": "professional_email",
+            "default_preset_id": "professional_clear",
             "tags": [],
         }
     ]
@@ -133,3 +148,4 @@ def test_parse_surfaces_clear_message_for_missing_required_action_fields() -> No
     assert "system_prompt" in message
     assert "user_prompt_template" in message
     assert "Model output snippet:" in message
+

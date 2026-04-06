@@ -1,10 +1,9 @@
-from contextlib import contextmanager
+﻿from contextlib import contextmanager
 from pathlib import Path
-import json
 import shutil
 from uuid import uuid4
 
-from adaptive_ai_workbench.domain.models import ActionDefinition, CandidateActionPack, WorkbenchProject
+from adaptive_ai_workbench.domain.models import ActionDefinition, CandidateActionPack, WorkbenchProject, ResponseControls
 from adaptive_ai_workbench.persistence.action_pack_store import ActionPackStore
 from adaptive_ai_workbench.persistence.preset_store import PresetStore
 from adaptive_ai_workbench.persistence.project_store import ProjectStore
@@ -35,7 +34,7 @@ def build_candidate() -> CandidateActionPack:
         title="Generated Email Helper",
         summary="Generated workflow for drafting and improving professional emails.",
         reasoning="The goal is centered on email drafting and rewriting.",
-        recommended_preset_ids=["professional_email"],
+        recommended_preset_ids=["professional_clear"],
         actions=[
             ActionDefinition(
                 action_id="draft_email",
@@ -46,9 +45,9 @@ def build_candidate() -> CandidateActionPack:
                 rationale="Drafting is central to the requested workflow.",
                 input_mode="single_text",
                 fields=[],
-                system_prompt="You are an expert email assistant. Write with tone={tone}, language={language}, style={output_style}, length={length}.",
+                system_prompt="You are an expert email assistant. Write with tone={tone}, language={language}, style={output_style}, length={length}, format={format}, strictness={strictness}.",
                 user_prompt_template="Goal: {goal_text}\nInput:\n{input_text}",
-                default_preset_id="professional_email",
+                default_preset_id="professional_clear",
                 tags=["email"],
             )
         ],
@@ -75,18 +74,21 @@ def test_action_pack_store_installs_generated_candidate_and_reloads_it() -> None
 
         assert installed.source.value == "generated"
         assert reloaded.pack_id == "generated_email_helper"
-        assert reloaded.recommended_preset_ids == ["professional_email"]
+        assert reloaded.recommended_preset_ids == ["professional_clear"]
 
 
-def test_preset_store_loads_builtin_presets() -> None:
+def test_preset_store_loads_universal_response_profiles_and_legacy_aliases() -> None:
     store = PresetStore(templates_dir())
     presets = store.list_builtin()
 
     assert {preset.preset_id for preset in presets} >= {
-        "professional_email",
-        "concise_cv",
-        "strict_code_review",
+        "professional_clear",
+        "concise_structured",
+        "analytical_review",
     }
+
+    legacy = store.load_builtin("professional_email")
+    assert legacy.preset_id == "professional_clear"
 
 
 def test_project_store_roundtrip() -> None:
@@ -97,7 +99,14 @@ def test_project_store_roundtrip() -> None:
             goal_text="Help me improve emails",
             input_text="Initial content",
             selected_pack_id="email_assistant",
-            selected_preset_id="professional_email",
+            selected_controls=ResponseControls(
+                tone="professional",
+                language="en",
+                output_style="clear",
+                length="medium",
+                format="paragraph",
+                strictness="medium",
+            ),
         )
 
         path = store.save_project(project)
@@ -105,3 +114,5 @@ def test_project_store_roundtrip() -> None:
 
         assert path.exists()
         assert loaded.selected_pack_id == "email_assistant"
+        assert loaded.selected_controls is not None
+        assert loaded.selected_controls.output_style == "clear"

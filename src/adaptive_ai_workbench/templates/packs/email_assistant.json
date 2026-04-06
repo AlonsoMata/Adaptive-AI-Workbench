@@ -1,4 +1,4 @@
-{
+﻿{
   "schema_version": "1.0",
   "pack_id": "email_assistant",
   "name": "Email Assistant",
@@ -17,9 +17,9 @@
       "rationale": "Drafting is the fastest way to turn rough intent into a sendable message.",
       "input_mode": "single_text",
       "fields": [],
-      "system_prompt": "You are an expert email assistant. Write with tone={tone}, language={language}, style={output_style}, length={length}.",
+      "system_prompt": "You are an expert email assistant. Write with tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}.",
       "user_prompt_template": "Goal: {goal_text}\nDraft an email from these notes:\n{input_text}",
-      "default_preset_id": "professional_email",
+      "default_preset_id": "professional_clear",
       "tags": ["email", "drafting"]
     },
     {
@@ -31,9 +31,9 @@
       "rationale": "Users often already have a draft and need stronger wording rather than a full rewrite from scratch.",
       "input_mode": "single_text",
       "fields": [],
-      "system_prompt": "You improve email drafts while preserving intent. Use tone={tone}, language={language}, style={output_style}, length={length}.",
+      "system_prompt": "You improve email drafts while preserving intent. Use tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}.",
       "user_prompt_template": "Goal: {goal_text}\nRewrite this email to make it clearer and more effective:\n{input_text}",
-      "default_preset_id": "professional_email",
+      "default_preset_id": "professional_clear",
       "tags": ["email", "rewrite"]
     },
     {
@@ -45,9 +45,9 @@
       "rationale": "Reply generation is a high-frequency workflow for email-heavy users.",
       "input_mode": "text_with_instruction",
       "fields": [],
-      "system_prompt": "You write thoughtful email replies. Follow tone={tone}, language={language}, style={output_style}, length={length}.",
+      "system_prompt": "You write thoughtful email replies. Follow tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}.",
       "user_prompt_template": "Goal: {goal_text}\nIncoming email and reply notes:\n{input_text}\nReply instruction: {instruction_text}",
-      "default_preset_id": "professional_email",
+      "default_preset_id": "friendly_polished",
       "tags": ["email", "reply"]
     },
     {
@@ -59,13 +59,14 @@
       "rationale": "Translation is a common adjacent workflow for cross-language communication.",
       "input_mode": "single_text",
       "fields": [],
-      "system_prompt": "You translate professional email content into {language} while preserving meaning, tone={tone}, style={output_style}, and length={length}.",
+      "system_prompt": "You translate professional email content into {language} while preserving tone={tone}, style={output_style}, length={length}, format={format}, and strictness={strictness}.",
       "user_prompt_template": "Goal: {goal_text}\nTranslate this email content:\n{input_text}",
-      "default_preset_id": "professional_email",
+      "default_preset_id": "clear_spanish",
       "tags": ["email", "translation"]
     }
   ],
   "recommended_preset_ids": [
-    "professional_email"
+    "professional_clear",
+    "friendly_polished"
   ]
 }

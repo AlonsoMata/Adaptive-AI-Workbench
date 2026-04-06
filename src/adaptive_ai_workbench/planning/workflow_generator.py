@@ -27,6 +27,8 @@ ALLOWED_PLACEHOLDERS = [
     "{language}",
     "{output_style}",
     "{length}",
+    "{format}",
+    "{strictness}",
     "{instruction_text}",
 ]
 
@@ -51,15 +53,15 @@ def build_candidate_generation_prompt(
 ) -> WorkflowGenerationPrompt:
     approved_kinds = "\n".join(f"- {kind.value}" for kind in ActionKind)
     required_action_fields = "\n".join(f"- {field_name}" for field_name in REQUIRED_ACTION_FIELDS)
-    preset_lines = "\n".join(
+    profile_lines = "\n".join(
         (
             f"- {preset.preset_id}: {preset.description} "
-            f"(tone={preset.tone}, language={preset.language}, "
-            f"style={preset.output_style}, length={preset.length})"
+            f"(tone={preset.tone}, language={preset.language}, style={preset.output_style}, "
+            f"length={preset.length}, format={preset.format}, strictness={preset.strictness})"
         )
         for preset in presets
     )
-    allowed_preset_ids = ", ".join(preset.preset_id for preset in presets) or "none"
+    allowed_profile_ids = ", ".join(preset.preset_id for preset in presets) or "none"
     allowed_placeholders = ", ".join(ALLOWED_PLACEHOLDERS)
 
     user_prompt = (
@@ -84,9 +86,10 @@ def build_candidate_generation_prompt(
         "Workflow rules:\n"
         "- Create 2 to 4 actions.\n"
         "- Use only approved action kinds.\n"
-        "- recommended_preset_ids must use only these preset ids: "
-        f"{allowed_preset_ids}.\n"
-        "- Each action default_preset_id must be null or one of those preset ids.\n"
+        "- Treat recommended_preset_ids and default_preset_id as universal response-profile ids, not domain-specific presets.\n"
+        "- recommended_preset_ids must use only these built-in response-profile ids: "
+        f"{allowed_profile_ids}.\n"
+        "- Each action default_preset_id must be null or one of those response-profile ids.\n"
         "- Use only these Python str.format placeholders in prompts: "
         f"{allowed_placeholders}.\n"
         "- Generated actions must be directly usable by the current dispatcher/runtime model.\n"
@@ -98,8 +101,9 @@ def build_candidate_generation_prompt(
         "- Do not mention tools, shell commands, plugins, autonomous steps, or code execution.\n"
         "- Warnings should be concise and optional. Use [] if none.\n"
         "- fields and tags must always be present. Use [] if empty.\n"
-        "- Never omit action_id, name, system_prompt, or user_prompt_template.\n\n"
+        "- Never omit action_id, name, system_prompt, or user_prompt_template.\n"
+        "- Prefer response profiles such as professional_clear, concise_structured, analytical_review, formal_report, friendly_polished, or clear_spanish over domain-specific naming.\n\n"
         f"Approved action kinds:\n{approved_kinds}\n\n"
-        f"Available presets:\n{preset_lines}\n"
+        f"Available built-in response profiles:\n{profile_lines}\n"
     )
     return WorkflowGenerationPrompt(system_prompt=system_prompt, user_prompt=user_prompt)

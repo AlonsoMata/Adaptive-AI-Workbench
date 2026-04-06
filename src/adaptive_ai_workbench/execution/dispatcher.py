@@ -1,11 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
 
 from adaptive_ai_workbench.domain.enums import ActionKind
 from adaptive_ai_workbench.domain.errors import ValidationFailure
-from adaptive_ai_workbench.domain.models import ActionDefinition, PresetDefinition
+from adaptive_ai_workbench.domain.models import ActionDefinition, ResponseControls
 from adaptive_ai_workbench.execution.handlers import (
     handle_code_action,
     handle_cv_action,
@@ -13,7 +13,7 @@ from adaptive_ai_workbench.execution.handlers import (
 )
 
 
-HandlerFunc = Callable[[ActionDefinition, str, PresetDefinition, str], dict[str, Any]]
+HandlerFunc = Callable[[ActionDefinition, str, ResponseControls, str], dict[str, Any]]
 
 
 class ExecutionDispatcher:
@@ -37,10 +37,10 @@ class ExecutionDispatcher:
         self,
         action: ActionDefinition,
         input_text: str,
-        preset: PresetDefinition,
+        response_controls: ResponseControls,
         goal_text: str,
     ) -> dict[str, Any]:
         handler = self._handlers.get(action.kind)
         if handler is None:
             raise ValidationFailure(f"Unsupported action kind: {action.kind}")
-        return handler(action, input_text, preset, goal_text)
+        return handler(action, input_text, response_controls, goal_text)

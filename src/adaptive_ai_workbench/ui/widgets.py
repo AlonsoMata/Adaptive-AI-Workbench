@@ -11,8 +11,13 @@ class SidebarWidgets:
     pack_detail_label: ttk.Label
     action_list: tk.Listbox
     action_detail_label: ttk.Label
-    preset_list: tk.Listbox
-    preset_detail_label: ttk.Label
+    tone_combo: ttk.Combobox
+    length_combo: ttk.Combobox
+    language_combo: ttk.Combobox
+    style_combo: ttk.Combobox
+    format_combo: ttk.Combobox
+    strictness_combo: ttk.Combobox
+    controls_detail_label: ttk.Label
 
 
 @dataclass(slots=True)
@@ -38,6 +43,7 @@ EXECUTION_HELP_WRAP = 460
 SIDEBAR_DETAIL_WRAP = 255
 CANDIDATE_ACTION_DETAIL_WRAP = 520
 ENABLED_HELP_WRAP = 520
+CONTROL_LABEL_WIDTH = 11
 
 
 def build_goal_panel(parent: ttk.Frame) -> tuple[ttk.Frame, tk.Text]:
@@ -108,35 +114,61 @@ def _build_selection_detail(parent: ttk.Frame, row: int) -> ttk.Label:
     return label
 
 
+def _build_control_row(parent: ttk.Frame, row: int, label: str) -> ttk.Combobox:
+    ttk.Label(parent, text=label, width=CONTROL_LABEL_WIDTH).grid(row=row, column=0, sticky="w", pady=(0, 4))
+    combo = ttk.Combobox(parent, state="readonly")
+    combo.grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=(0, 4))
+    return combo
+
+
 def build_sidebar(parent: ttk.Frame) -> tuple[ttk.Frame, SidebarWidgets]:
     frame = ttk.LabelFrame(parent, text="Installed Workflow Catalog")
     frame.columnconfigure(0, weight=1)
     frame.rowconfigure(1, weight=3)
     frame.rowconfigure(4, weight=3)
-    frame.rowconfigure(7, weight=2)
+    frame.rowconfigure(6, weight=2)
 
     ttk.Label(frame, text="Packs").grid(row=0, column=0, sticky="w", padx=8, pady=(8, 0))
-    packs = tk.Listbox(frame, exportselection=False, height=7, width=28, activestyle="dotbox")
+    packs = tk.Listbox(frame, exportselection=False, height=7, width=26, activestyle="dotbox")
     packs.grid(row=1, column=0, sticky="nsew", padx=8, pady=(4, 2))
     pack_detail_label = _build_selection_detail(frame, 2)
 
     ttk.Label(frame, text="Actions").grid(row=3, column=0, sticky="w", padx=8, pady=(0, 0))
-    actions = tk.Listbox(frame, exportselection=False, height=7, width=28, activestyle="dotbox")
+    actions = tk.Listbox(frame, exportselection=False, height=7, width=26, activestyle="dotbox")
     actions.grid(row=4, column=0, sticky="nsew", padx=8, pady=(4, 2))
     action_detail_label = _build_selection_detail(frame, 5)
 
-    ttk.Label(frame, text="Presets").grid(row=6, column=0, sticky="w", padx=8, pady=(0, 0))
-    presets = tk.Listbox(frame, exportselection=False, height=5, width=28, activestyle="dotbox")
-    presets.grid(row=7, column=0, sticky="nsew", padx=8, pady=(4, 2))
-    preset_detail_label = _build_selection_detail(frame, 8)
+    controls_frame = ttk.LabelFrame(frame, text="Universal Response Controls")
+    controls_frame.grid(row=6, column=0, sticky="nsew", padx=8, pady=(2, 8))
+    controls_frame.columnconfigure(1, weight=1)
+
+    tone_combo = _build_control_row(controls_frame, 0, "Tone")
+    length_combo = _build_control_row(controls_frame, 1, "Length")
+    language_combo = _build_control_row(controls_frame, 2, "Language")
+    style_combo = _build_control_row(controls_frame, 3, "Style")
+    format_combo = _build_control_row(controls_frame, 4, "Format")
+    strictness_combo = _build_control_row(controls_frame, 5, "Strictness")
+
+    controls_detail_label = ttk.Label(
+        controls_frame,
+        text="Current controls will appear here.",
+        justify="left",
+        wraplength=SIDEBAR_DETAIL_WRAP,
+    )
+    controls_detail_label.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(6, 0))
 
     widgets = SidebarWidgets(
         pack_list=packs,
         pack_detail_label=pack_detail_label,
         action_list=actions,
         action_detail_label=action_detail_label,
-        preset_list=presets,
-        preset_detail_label=preset_detail_label,
+        tone_combo=tone_combo,
+        length_combo=length_combo,
+        language_combo=language_combo,
+        style_combo=style_combo,
+        format_combo=format_combo,
+        strictness_combo=strictness_combo,
+        controls_detail_label=controls_detail_label,
     )
     return frame, widgets
 
@@ -171,7 +203,7 @@ def build_candidate_editor(parent: ttk.Frame) -> tuple[ttk.Frame, CandidateEdito
     title_entry = ttk.Entry(metadata_frame)
     title_entry.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=(0, 6))
 
-    ttk.Label(metadata_frame, text="Recommended Presets").grid(row=1, column=0, sticky="w")
+    ttk.Label(metadata_frame, text="Suggested Profiles").grid(row=1, column=0, sticky="w")
     recommended_presets_entry = ttk.Entry(metadata_frame)
     recommended_presets_entry.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(0, 6))
 
@@ -223,7 +255,7 @@ def build_candidate_editor(parent: ttk.Frame) -> tuple[ttk.Frame, CandidateEdito
     action_name_entry = ttk.Entry(action_frame)
     action_name_entry.grid(row=5, column=1, sticky="ew", padx=(8, 0), pady=(0, 6))
 
-    ttk.Label(action_frame, text="Default Preset").grid(row=6, column=0, sticky="w")
+    ttk.Label(action_frame, text="Default Profile").grid(row=6, column=0, sticky="w")
     action_default_preset_entry = ttk.Entry(action_frame)
     action_default_preset_entry.grid(row=6, column=1, sticky="ew", padx=(8, 0), pady=(0, 6))
 

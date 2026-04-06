@@ -1,15 +1,13 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
-from typing import Any
-
-from adaptive_ai_workbench.domain.models import ActionDefinition, PresetDefinition
+from adaptive_ai_workbench.domain.models import ActionDefinition, ResponseControls
 from adaptive_ai_workbench.execution.handlers.text_handlers import _build_preview
 
 
 def handle_cv_action(
     action: ActionDefinition,
     input_text: str,
-    preset: PresetDefinition,
+    response_controls: ResponseControls,
     goal_text: str,
-) -> dict[str, Any]:
-    return _build_preview("cv", action, input_text, preset, goal_text)
+) -> dict[str, object]:
+    return _build_preview("cv", action, input_text, response_controls, goal_text)

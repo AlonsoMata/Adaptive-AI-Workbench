@@ -1,0 +1,12 @@
+﻿{
+  "schema_version": "1.0",
+  "preset_id": "analytical_review",
+  "name": "Analytical Review",
+  "description": "Analytical, high-strictness output for code review, extraction, and evaluation tasks.",
+  "tone": "direct",
+  "language": "en",
+  "output_style": "analytical",
+  "length": "medium",
+  "format": "report",
+  "strictness": "high"
+}

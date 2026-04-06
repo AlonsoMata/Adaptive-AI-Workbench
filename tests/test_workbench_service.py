@@ -1,4 +1,4 @@
-from contextlib import contextmanager
+﻿from contextlib import contextmanager
 from pathlib import Path
 import json
 import shutil
@@ -20,15 +20,16 @@ class QueueGateway(ModelGateway):
     def is_configured(self) -> bool:
         return self.configured
 
-    def build_text_request(self, system_prompt: str, user_prompt: str) -> TextGenerationRequest:
+    def build_text_request(self, system_prompt: str, user_prompt: str, *, max_output_tokens: int | None = None) -> TextGenerationRequest:
         return TextGenerationRequest(
             model="gpt-test-model",
             instructions=system_prompt,
             input_text=user_prompt,
+            max_output_tokens=max_output_tokens or 900,
         )
 
-    def generate_text(self, system_prompt: str, user_prompt: str) -> TextGenerationResult:
-        request = self.build_text_request(system_prompt=system_prompt, user_prompt=user_prompt)
+    def generate_text(self, system_prompt: str, user_prompt: str, *, max_output_tokens: int | None = None) -> TextGenerationResult:
+        request = self.build_text_request(system_prompt=system_prompt, user_prompt=user_prompt, max_output_tokens=max_output_tokens)
         self.requests.append(request)
         output_text = self.outputs.pop(0) if self.outputs else "Stub output"
         return TextGenerationResult(output_text=output_text, request=request)
@@ -43,7 +44,7 @@ def build_candidate_payload() -> dict[str, object]:
         "summary": "Workflow for summarizing notes, extracting action items, and drafting follow-ups.",
         "reasoning": "The goal is meeting-focused, so the workflow emphasizes summarization, extraction, and follow-up drafting.",
         "warnings": ["Review action items before sharing externally."],
-        "recommended_preset_ids": ["professional_email"],
+        "recommended_preset_ids": ["concise_structured"],
         "actions": [
             {
                 "action_id": "summarize_notes",
@@ -54,9 +55,9 @@ def build_candidate_payload() -> dict[str, object]:
                 "rationale": "Meeting notes usually need an overview before deeper extraction.",
                 "input_mode": "single_text",
                 "fields": [],
-                "system_prompt": "You summarize meeting notes with tone={tone}, language={language}, style={output_style}, length={length}.",
+                "system_prompt": "You summarize meeting notes with tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}.",
                 "user_prompt_template": "Goal: {goal_text}\nMeeting notes:\n{input_text}",
-                "default_preset_id": "professional_email",
+                "default_preset_id": "concise_structured",
                 "tags": ["meeting", "summary"],
             },
             {
@@ -68,9 +69,9 @@ def build_candidate_payload() -> dict[str, object]:
                 "rationale": "Action extraction is a direct requirement in the goal.",
                 "input_mode": "single_text",
                 "fields": [],
-                "system_prompt": "You extract action items with tone={tone}, language={language}, style={output_style}, length={length}.",
+                "system_prompt": "You extract action items with tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}.",
                 "user_prompt_template": "Goal: {goal_text}\nMeeting notes:\n{input_text}",
-                "default_preset_id": "professional_email",
+                "default_preset_id": "analytical_review",
                 "tags": ["meeting", "actions"],
             }
         ],
@@ -116,7 +117,7 @@ def cleanup_controller(controller: AppController) -> None:
     controller._test_context.__exit__(None, None, None)  # type: ignore[attr-defined]
 
 
-def test_service_preview_builtin_action_uses_goal_input_and_selected_preset() -> None:
+def test_service_preview_builtin_action_uses_goal_input_and_selected_controls() -> None:
     with scratch_data_dir() as data_dir:
         settings = Settings(
             data_dir=data_dir,
@@ -131,12 +132,20 @@ def test_service_preview_builtin_action_uses_goal_input_and_selected_preset() ->
             action_id="draft_email",
             goal_text="Help me write a clear client follow-up",
             input_text="Need to confirm next Tuesday and share the revised timeline.",
-            selected_preset_id="professional_email",
+            selected_controls=service.build_response_controls(
+                tone="friendly",
+                length="medium",
+                language="en",
+                output_style="polished",
+                format="email",
+                strictness="low",
+            ),
         )
 
         assert preview["pack_name"] == "Email Assistant"
         assert preview["action_name"] == "Draft Email"
-        assert preview["preset_id"] == "professional_email"
+        assert preview["tone"] == "friendly"
+        assert preview["format"] == "email"
         assert "Help me write a clear client follow-up" in str(preview["user_prompt"])
         assert "Need to confirm next Tuesday" in str(preview["user_prompt"])
 
@@ -156,7 +165,14 @@ def test_service_execute_builtin_action_gracefully_handles_unconfigured_model() 
             action_id="draft_email",
             goal_text="Write a polished client update",
             input_text="We fixed the issue and can deploy tomorrow morning.",
-            selected_preset_id="professional_email",
+            selected_controls=service.build_response_controls(
+                tone="professional",
+                length="medium",
+                language="en",
+                output_style="clear",
+                format="email",
+                strictness="medium",
+            ),
         )
 
         assert result["mode"] == "unavailable"
@@ -164,7 +180,7 @@ def test_service_execute_builtin_action_gracefully_handles_unconfigured_model() 
         assert result["preview"]["action_name"] == "Draft Email"
 
 
-def test_service_generate_candidate_workflow_builds_request_from_goal_and_presets() -> None:
+def test_service_generate_candidate_workflow_builds_request_from_goal_and_profiles() -> None:
     with scratch_data_dir() as data_dir:
         gateway = QueueGateway(outputs=[json.dumps(build_candidate_payload())])
         settings = Settings(
@@ -183,8 +199,23 @@ def test_service_generate_candidate_workflow_builds_request_from_goal_and_preset
         assert gateway.requests
         generation_request = gateway.requests[0]
         assert "Help me summarize meeting notes and extract action items" in generation_request.input_text
-        assert "professional_email" in generation_request.input_text
-        assert "strict_code_review" in generation_request.input_text
+        assert "professional_clear" in generation_request.input_text
+        assert "analytical_review" in generation_request.input_text
+        assert generation_request.max_output_tokens == 2200
+
+
+def test_service_supports_legacy_profile_aliases() -> None:
+    with scratch_data_dir() as data_dir:
+        settings = Settings(
+            data_dir=data_dir,
+            templates_dir=templates_dir(),
+            openai_api_key=None,
+            openai_model=None,
+        )
+        service = WorkbenchService(settings)
+
+        profile = service.get_response_profile("professional_email")
+        assert profile.preset_id == "professional_clear"
 
 
 def test_controller_generate_workflow_gracefully_handles_unconfigured_model() -> None:
@@ -253,13 +284,21 @@ def test_service_executes_installed_generated_pack_through_existing_runtime() ->
             action_id="summarize_notes",
             goal_text="Help me summarize meeting notes and extract action items",
             input_text="Alice will prepare the roadmap draft by Friday. Bob will schedule the customer review.",
-            selected_preset_id="professional_email",
+            selected_controls=service.build_response_controls(
+                tone="neutral",
+                length="medium",
+                language="en",
+                output_style="structured",
+                format="summary",
+                strictness="medium",
+            ),
         )
 
         assert any(pack.pack_id == "generated_meeting_helper" for pack in service.list_catalog_packs_detailed())
         assert result["mode"] == "live"
         assert result["output_text"] == "Generated live response."
         assert result["preview"]["pack_id"] == "generated_meeting_helper"
+        assert result["preview"]["format"] == "summary"
 
 
 def test_controller_generation_failure_surfaces_invalid_payload() -> None:
@@ -296,6 +335,16 @@ def test_controller_run_action_uses_live_gateway_output() -> None:
 
         controller.bootstrap()
         controller.handle_pack_selected("email_assistant")
+        controller.handle_response_controls_changed(
+            tone="friendly",
+            length="medium",
+            language="en",
+            output_style="polished",
+            format="email",
+            strictness="low",
+            goal_text="Write a polished client update",
+            input_text="We fixed the issue and can deploy tomorrow morning.",
+        )
         controller.handle_action_selected(
             action_id="draft_email",
             goal_text="Write a polished client update",
@@ -309,7 +358,8 @@ def test_controller_run_action_uses_live_gateway_output() -> None:
         assert gateway.requests
         assert "Live Execution Result" in state.output_text
         assert "Live model response for built-in workflow execution." in state.output_text
-        assert "gpt-test-model" in state.output_text
+        assert "friendly" in state.output_text
+        assert "email" in state.output_text
 
 
 def test_controller_can_edit_candidate_metadata() -> None:
@@ -322,11 +372,11 @@ def test_controller_can_edit_candidate_metadata() -> None:
             title="Edited Meeting Workflow",
             summary="Shorter edited summary.",
             reasoning="Edited reasoning for the review pass.",
-            recommended_preset_ids_text="professional_email, strict_code_review",
+            recommended_preset_ids_text="concise_structured, analytical_review",
             action_name="Summarize Notes",
             action_description="Summarize raw meeting notes into a clear digest.",
             action_rationale="Meeting notes usually need an overview before deeper extraction.",
-            action_default_preset_id="professional_email",
+            action_default_preset_id="concise_structured",
             action_enabled=True,
         )
 
@@ -334,7 +384,7 @@ def test_controller_can_edit_candidate_metadata() -> None:
         assert state.candidate_pack.title == "Edited Meeting Workflow"
         assert state.candidate_pack.summary == "Shorter edited summary."
         assert state.candidate_pack.reasoning == "Edited reasoning for the review pass."
-        assert state.candidate_pack.recommended_preset_ids == ["professional_email", "strict_code_review"]
+        assert state.candidate_pack.recommended_preset_ids == ["concise_structured", "analytical_review"]
     finally:
         cleanup_controller(controller)
 
@@ -354,7 +404,7 @@ def test_controller_can_remove_candidate_action() -> None:
         cleanup_controller(controller)
 
 
-def test_controller_can_change_candidate_action_default_preset() -> None:
+def test_controller_can_change_candidate_action_default_profile() -> None:
     service, state, controller = build_controller([json.dumps(build_candidate_payload())])
     try:
         controller.bootstrap()
@@ -364,17 +414,17 @@ def test_controller_can_change_candidate_action_default_preset() -> None:
             title=state.candidate_pack.title,
             summary=state.candidate_pack.summary,
             reasoning=state.candidate_pack.reasoning,
-            recommended_preset_ids_text="professional_email",
+            recommended_preset_ids_text="concise_structured",
             action_name="Extract Action Items",
             action_description="Extract owners, due dates, and next steps from meeting notes.",
             action_rationale="Action extraction is a direct requirement in the goal.",
-            action_default_preset_id="strict_code_review",
+            action_default_preset_id="analytical_review",
             action_enabled=True,
         )
 
         assert state.candidate_pack is not None
         edited_action = next(action for action in state.candidate_pack.actions if action.action_id == "extract_actions")
-        assert edited_action.default_preset_id == "strict_code_review"
+        assert edited_action.default_preset_id == "analytical_review"
     finally:
         cleanup_controller(controller)
 
@@ -388,11 +438,11 @@ def test_controller_installs_edited_candidate_successfully() -> None:
             title="Edited Meeting Workflow",
             summary="Install the edited candidate.",
             reasoning=state.candidate_pack.reasoning,
-            recommended_preset_ids_text="professional_email",
+            recommended_preset_ids_text="concise_structured",
             action_name="Summarize Notes",
             action_description="Installable edited summary action.",
             action_rationale="Still needed before extraction.",
-            action_default_preset_id="professional_email",
+            action_default_preset_id="concise_structured",
             action_enabled=False,
         )
         controller.handle_install_candidate()
@@ -419,11 +469,11 @@ def test_controller_rejects_invalid_candidate_edit() -> None:
             title="Broken Candidate",
             summary=state.candidate_pack.summary,
             reasoning=state.candidate_pack.reasoning,
-            recommended_preset_ids_text="professional_email",
+            recommended_preset_ids_text="concise_structured",
             action_name="Summarize Notes",
             action_description="Summarize raw meeting notes into a clear digest.",
             action_rationale="Meeting notes usually need an overview before deeper extraction.",
-            action_default_preset_id="unknown_preset",
+            action_default_preset_id="unknown_profile",
             action_enabled=True,
         )
 
@@ -432,6 +482,8 @@ def test_controller_rejects_invalid_candidate_edit() -> None:
         assert "Candidate Edit Rejected" in state.inspector_text
     finally:
         cleanup_controller(controller)
+
+
 def test_controller_generation_failure_surfaces_missing_required_action_fields() -> None:
     incomplete_payload = build_candidate_payload()
     incomplete_payload["actions"] = [
@@ -442,7 +494,7 @@ def test_controller_generation_failure_surfaces_missing_required_action_fields()
             "rationale": "This should fail validation.",
             "input_mode": "single_text",
             "fields": [],
-            "default_preset_id": "professional_email",
+            "default_preset_id": "professional_clear",
             "tags": [],
         }
     ]
@@ -464,6 +516,7 @@ def test_controller_generation_failure_surfaces_missing_required_action_fields()
         assert "Generated workflow is missing required action fields." in controller.state.inspector_text
         assert "action_id" in controller.state.inspector_text
         assert controller.state.candidate_pack is None
+
 
 def test_candidate_action_list_populates_after_generation() -> None:
     service, state, controller = build_controller([json.dumps(build_candidate_payload())])
@@ -515,6 +568,7 @@ def test_candidate_action_removal_updates_list_and_selection() -> None:
     finally:
         cleanup_controller(controller)
 
+
 def test_controller_generation_failure_includes_model_output_snippet() -> None:
     raw_output = "I will explain first. Use placeholders like {goal_text}. Then JSON later maybe."
 
@@ -536,3 +590,32 @@ def test_controller_generation_failure_includes_model_output_snippet() -> None:
         assert "Model output snippet:" in controller.state.inspector_text
         assert "Use placeholders like {goal_text}" in controller.state.inspector_text
         assert controller.state.candidate_pack is None
+
+
+def test_controller_updates_universal_controls_in_state() -> None:
+    service, state, controller = build_controller([])
+    try:
+        controller.bootstrap()
+        controller.handle_response_controls_changed(
+            tone="friendly",
+            length="short",
+            language="es",
+            output_style="simple",
+            format="summary",
+            strictness="low",
+            goal_text="Help me rewrite a message",
+            input_text="Original content",
+        )
+
+        assert state.selected_tone == "friendly"
+        assert state.selected_length == "short"
+        assert state.selected_language == "es"
+        assert state.selected_style == "simple"
+        assert state.selected_format == "summary"
+        assert state.selected_strictness == "low"
+    finally:
+        cleanup_controller(controller)
+
+
+
+

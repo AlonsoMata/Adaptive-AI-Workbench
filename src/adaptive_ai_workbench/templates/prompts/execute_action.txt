@@ -1,6 +1,6 @@
-Execute the installed workflow action using the provided goal, input, and preset.
+﻿Execute the installed workflow action using the provided goal, input, and universal response controls.
 Follow the action definition exactly.
 Do not claim to execute code or tools.
 Use Python str.format placeholders only.
-Available placeholders include {goal_text}, {input_text}, {tone}, {language}, {output_style}, {length}, and {instruction_text}.
-Return useful output for the user and keep the response aligned with the selected preset.
+Available placeholders include {goal_text}, {input_text}, {tone}, {language}, {output_style}, {length}, {format}, {strictness}, and {instruction_text}.
+Return useful output for the user and keep the response aligned with the selected response controls.

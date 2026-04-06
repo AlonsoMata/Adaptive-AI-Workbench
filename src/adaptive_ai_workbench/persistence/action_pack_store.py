@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -25,7 +25,7 @@ class ActionPackStore:
 
     def save_installed(self, pack: InstalledActionPack) -> Path:
         path = self._installed_dir / f"{pack.pack_id}.json"
-        path.write_text(pack.model_dump_json(indent=2), encoding="utf-8")
+        path.write_text(pack.model_dump_json(indent=2), encoding="utf-8-sig")
         return path
 
     def install_candidate(self, candidate: CandidateActionPack) -> InstalledActionPack:
@@ -47,6 +47,7 @@ class ActionPackStore:
     @staticmethod
     def _load_path(path: Path) -> InstalledActionPack:
         try:
-            return InstalledActionPack.model_validate_json(path.read_text(encoding="utf-8"))
+            return InstalledActionPack.model_validate_json(path.read_text(encoding="utf-8-sig"))
         except Exception as exc:
             raise StorageError(f"Failed to load action pack from {path}: {exc}") from exc
+

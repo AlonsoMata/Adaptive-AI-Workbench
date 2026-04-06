@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
@@ -33,11 +33,23 @@ class ModelGateway(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def build_text_request(self, system_prompt: str, user_prompt: str) -> TextGenerationRequest:
+    def build_text_request(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        max_output_tokens: int | None = None,
+    ) -> TextGenerationRequest:
         raise NotImplementedError
 
     @abstractmethod
-    def generate_text(self, system_prompt: str, user_prompt: str) -> TextGenerationResult:
+    def generate_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        max_output_tokens: int | None = None,
+    ) -> TextGenerationResult:
         raise NotImplementedError
 
 
@@ -49,22 +61,39 @@ class OpenAIModelGateway(ModelGateway):
     def is_configured(self) -> bool:
         return bool(self._settings.openai_api_key and self._settings.openai_model)
 
-    def build_text_request(self, system_prompt: str, user_prompt: str) -> TextGenerationRequest:
+    def build_text_request(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        max_output_tokens: int | None = None,
+    ) -> TextGenerationRequest:
         if not self._settings.openai_model:
             raise ConfigurationError("AI_WORKBENCH_MODEL is not configured.")
         return TextGenerationRequest(
             model=self._settings.openai_model,
             instructions=system_prompt,
             input_text=user_prompt,
+            max_output_tokens=max_output_tokens or 900,
         )
 
-    def generate_text(self, system_prompt: str, user_prompt: str) -> TextGenerationResult:
+    def generate_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        max_output_tokens: int | None = None,
+    ) -> TextGenerationResult:
         if not self.is_configured():
             raise ConfigurationError(
                 "Live execution is unavailable because OPENAI_API_KEY or AI_WORKBENCH_MODEL is not configured."
             )
 
-        request = self.build_text_request(system_prompt=system_prompt, user_prompt=user_prompt)
+        request = self.build_text_request(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_output_tokens=max_output_tokens,
+        )
         response = self._get_client().responses.create(
             model=request.model,
             instructions=request.instructions,

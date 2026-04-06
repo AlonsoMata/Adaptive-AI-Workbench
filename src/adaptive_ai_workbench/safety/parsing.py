@@ -20,6 +20,8 @@ _REQUIRED_TOP_LEVEL_FIELDS = {
     "actions",
 }
 _KNOWN_TOP_LEVEL_FIELDS = _REQUIRED_TOP_LEVEL_FIELDS | {"schema_version", "warnings", "recommended_preset_ids"}
+_CANDIDATE_SIGNAL_SCAN_LIMIT = 5000
+_TRUNCATION_SIGNAL_THRESHOLD = 3
 
 
 def extract_first_json_object(raw_text: str) -> str:
@@ -32,11 +34,13 @@ def extract_first_json_object(raw_text: str) -> str:
     best_candidate_text: str | None = None
     best_candidate_score = -1
     best_candidate_completeness = -1
+    best_unbalanced_signal = -1
 
     for start in starts:
         try:
             candidate_text = _extract_balanced_object_from_start(normalized_text, start)
         except ModelOutputError:
+            best_unbalanced_signal = max(best_unbalanced_signal, _candidate_field_signal(normalized_text, start))
             continue
 
         saw_balanced_candidate = True
@@ -59,6 +63,15 @@ def extract_first_json_object(raw_text: str) -> str:
             best_candidate_text = candidate_text
             best_candidate_score = score
             best_candidate_completeness = completeness
+
+    if best_unbalanced_signal >= _TRUNCATION_SIGNAL_THRESHOLD and best_candidate_completeness < best_unbalanced_signal:
+        raise ModelOutputError(
+            _with_output_snippet(
+                "The model output appears to contain an incomplete candidate workflow JSON object. "
+                "The response may have been truncated before the full pack was closed.",
+                raw_text,
+            )
+        )
 
     if best_candidate_text is not None:
         return best_candidate_text
@@ -129,6 +142,11 @@ def _extract_balanced_object_from_start(raw_text: str, start: int) -> str:
                 return raw_text[start : index + 1]
 
     raise ModelOutputError("Unbalanced JSON object candidate.")
+
+
+def _candidate_field_signal(raw_text: str, start: int) -> int:
+    window = raw_text[start : start + _CANDIDATE_SIGNAL_SCAN_LIMIT]
+    return sum(1 for field_name in _REQUIRED_TOP_LEVEL_FIELDS if f'"{field_name}"' in window)
 
 
 def _strip_code_fences(raw_text: str) -> str:

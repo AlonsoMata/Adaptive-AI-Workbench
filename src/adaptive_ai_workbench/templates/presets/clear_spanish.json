@@ -1,0 +1,12 @@
+﻿{
+  "schema_version": "1.0",
+  "preset_id": "clear_spanish",
+  "name": "Clear Spanish",
+  "description": "Clear Spanish-language output for translation, summaries, and professional writing.",
+  "tone": "neutral",
+  "language": "es",
+  "output_style": "clear",
+  "length": "medium",
+  "format": "paragraph",
+  "strictness": "medium"
+}

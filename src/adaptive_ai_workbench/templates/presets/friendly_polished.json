@@ -1,0 +1,12 @@
+﻿{
+  "schema_version": "1.0",
+  "preset_id": "friendly_polished",
+  "name": "Friendly Polished",
+  "description": "Warm, polished output for approachable replies, outreach, and user-facing writing.",
+  "tone": "friendly",
+  "language": "en",
+  "output_style": "polished",
+  "length": "medium",
+  "format": "email",
+  "strictness": "low"
+}

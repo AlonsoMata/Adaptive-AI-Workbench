@@ -1,0 +1,12 @@
+﻿{
+  "schema_version": "1.0",
+  "preset_id": "formal_report",
+  "name": "Formal Report",
+  "description": "Formal, structured long-form output for reports, executive summaries, and formal documentation.",
+  "tone": "formal",
+  "language": "en",
+  "output_style": "structured",
+  "length": "long",
+  "format": "report",
+  "strictness": "medium"
+}

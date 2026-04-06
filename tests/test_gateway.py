@@ -1,4 +1,4 @@
-from contextlib import contextmanager
+﻿from contextlib import contextmanager
 from pathlib import Path
 import shutil
 from uuid import uuid4
@@ -38,10 +38,11 @@ def test_gateway_builds_live_text_request_from_system_and_user_prompts() -> None
         request = gateway.build_text_request(
             system_prompt="You are a precise writing assistant.",
             user_prompt="Rewrite this text for a client update.",
+            max_output_tokens=2200,
         )
 
         assert request.model == "gpt-test-model"
         assert request.instructions == "You are a precise writing assistant."
         assert request.input_text == "Rewrite this text for a client update."
-        assert request.max_output_tokens == 900
+        assert request.max_output_tokens == 2200
         assert request.temperature == 0.4

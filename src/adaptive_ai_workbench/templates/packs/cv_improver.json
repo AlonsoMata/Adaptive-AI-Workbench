@@ -1,4 +1,4 @@
-{
+﻿{
   "schema_version": "1.0",
   "pack_id": "cv_improver",
   "name": "CV Improver",
@@ -17,9 +17,9 @@
       "rationale": "Weak bullet points are a common bottleneck in CV quality.",
       "input_mode": "single_text",
       "fields": [],
-      "system_prompt": "You are a CV writing specialist. Improve bullets with tone={tone}, language={language}, style={output_style}, length={length}. Keep claims credible and ATS-friendly.",
+      "system_prompt": "You are a CV writing specialist. Improve bullets with tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}. Keep claims credible and ATS-friendly.",
       "user_prompt_template": "Goal: {goal_text}\nImprove this CV bullet:\n{input_text}",
-      "default_preset_id": "concise_cv",
+      "default_preset_id": "concise_structured",
       "tags": ["cv", "bullet"]
     },
     {
@@ -31,9 +31,9 @@
       "rationale": "The summary is highly visible and often too generic in weak CVs.",
       "input_mode": "single_text",
       "fields": [],
-      "system_prompt": "You rewrite CV summaries for recruiter impact using tone={tone}, language={language}, style={output_style}, length={length}.",
+      "system_prompt": "You rewrite CV summaries for recruiter impact using tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}.",
       "user_prompt_template": "Goal: {goal_text}\nRewrite this professional summary:\n{input_text}",
-      "default_preset_id": "concise_cv",
+      "default_preset_id": "concise_structured",
       "tags": ["cv", "summary"]
     },
     {
@@ -45,13 +45,14 @@
       "rationale": "Tailoring to a specific role creates the biggest quality jump for many applicants.",
       "input_mode": "text_with_instruction",
       "fields": [],
-      "system_prompt": "You tailor CV content to a role using tone={tone}, language={language}, style={output_style}, length={length}. Keep wording credible and ATS-friendly.",
+      "system_prompt": "You tailor CV content to a role using tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}. Keep wording credible and ATS-friendly.",
       "user_prompt_template": "Goal: {goal_text}\nCandidate CV content:\n{input_text}\nTarget role context: {instruction_text}",
-      "default_preset_id": "concise_cv",
+      "default_preset_id": "formal_report",
       "tags": ["cv", "tailoring"]
     }
   ],
   "recommended_preset_ids": [
-    "concise_cv"
+    "concise_structured",
+    "formal_report"
   ]
 }

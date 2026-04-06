@@ -1,0 +1,12 @@
+﻿{
+  "schema_version": "1.0",
+  "preset_id": "professional_clear",
+  "name": "Professional Clear",
+  "description": "Balanced professional wording for general-purpose work outputs.",
+  "tone": "professional",
+  "language": "en",
+  "output_style": "clear",
+  "length": "medium",
+  "format": "paragraph",
+  "strictness": "medium"
+}

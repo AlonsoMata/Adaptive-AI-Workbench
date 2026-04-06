@@ -1,4 +1,4 @@
-{
+﻿{
   "schema_version": "1.0",
   "pack_id": "code_helper",
   "name": "Code Helper",
@@ -17,9 +17,9 @@
       "rationale": "Explanation is the safest first step before suggesting changes.",
       "input_mode": "single_text",
       "fields": [],
-      "system_prompt": "You explain code clearly and accurately using tone={tone}, language={language}, style={output_style}, length={length}.",
+      "system_prompt": "You explain code clearly and accurately using tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}.",
       "user_prompt_template": "Goal: {goal_text}\nExplain this code:\n{input_text}",
-      "default_preset_id": "strict_code_review",
+      "default_preset_id": "analytical_review",
       "tags": ["code", "explanation"]
     },
     {
@@ -31,9 +31,9 @@
       "rationale": "Code review is one of the strongest practical workflows for a developer assistant.",
       "input_mode": "single_text",
       "fields": [],
-      "system_prompt": "You perform a rigorous code review with tone={tone}, language={language}, style={output_style}, length={length}. Focus on bugs, risks, regressions, and missing tests.",
+      "system_prompt": "You perform a rigorous code review with tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}. Focus on bugs, risks, regressions, and missing tests.",
       "user_prompt_template": "Goal: {goal_text}\nReview this code:\n{input_text}",
-      "default_preset_id": "strict_code_review",
+      "default_preset_id": "analytical_review",
       "tags": ["code", "review"]
     },
     {
@@ -45,13 +45,13 @@
       "rationale": "Many users need a plan for improving code before they start changing it.",
       "input_mode": "single_text",
       "fields": [],
-      "system_prompt": "You propose safe refactor plans using tone={tone}, language={language}, style={output_style}, length={length}. Prefer small steps and explicit tradeoffs.",
+      "system_prompt": "You propose safe refactor plans using tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}. Prefer small steps and explicit tradeoffs.",
       "user_prompt_template": "Goal: {goal_text}\nSuggest a refactor plan for this code:\n{input_text}",
-      "default_preset_id": "strict_code_review",
+      "default_preset_id": "analytical_review",
       "tags": ["code", "refactor"]
     }
   ],
   "recommended_preset_ids": [
-    "strict_code_review"
+    "analytical_review"
   ]
 }

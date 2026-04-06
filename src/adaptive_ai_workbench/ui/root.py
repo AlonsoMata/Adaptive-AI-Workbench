@@ -65,7 +65,6 @@ class WorkbenchRoot(tk.Tk):
         sidebar_frame.grid(row=1, column=1, rowspan=4, sticky="nsew", padx=(6, 12), pady=(0, 6))
         self.pack_list = self.sidebar.pack_list
         self.action_list = self.sidebar.action_list
-        self.preset_list = self.sidebar.preset_list
 
         editor_frame, self.input_text, self.output_text = build_editor_panel(self)
         editor_frame.grid(row=2, column=0, sticky="nsew", padx=(12, 6), pady=(0, 6))
@@ -81,10 +80,19 @@ class WorkbenchRoot(tk.Tk):
 
         self.pack_list.bind("<<ListboxSelect>>", self._on_pack_selected)
         self.action_list.bind("<<ListboxSelect>>", self._on_action_selected)
-        self.preset_list.bind("<<ListboxSelect>>", self._on_preset_selected)
         self.candidate_editor.action_list.bind("<<ListboxSelect>>", self._on_candidate_action_selected)
         self.candidate_editor.apply_button.configure(command=self._on_apply_candidate_edits)
         self.candidate_editor.remove_button.configure(command=self._on_remove_candidate_action)
+
+        for combo in (
+            self.sidebar.tone_combo,
+            self.sidebar.length_combo,
+            self.sidebar.language_combo,
+            self.sidebar.style_combo,
+            self.sidebar.format_combo,
+            self.sidebar.strictness_combo,
+        ):
+            combo.bind("<<ComboboxSelected>>", self._on_controls_changed)
 
     def _on_refresh(self) -> None:
         self.controller.handle_refresh_catalog()
@@ -161,11 +169,16 @@ class WorkbenchRoot(tk.Tk):
         )
         self._refresh_from_state()
 
-    def _on_preset_selected(self, _: tk.Event[tk.Listbox]) -> None:
+    def _on_controls_changed(self, _: tk.Event[ttk.Combobox]) -> None:
         if self._syncing:
             return
-        self.controller.handle_preset_selected(
-            self._get_listbox_selection(self.preset_list),
+        self.controller.handle_response_controls_changed(
+            tone=self.sidebar.tone_combo.get(),
+            length=self.sidebar.length_combo.get(),
+            language=self.sidebar.language_combo.get(),
+            output_style=self.sidebar.style_combo.get(),
+            format=self.sidebar.format_combo.get(),
+            strictness=self.sidebar.strictness_combo.get(),
             goal_text=self._read_text_widget(self.workflow_request_text),
             input_text=self._read_text_widget(self.input_text),
         )
@@ -204,8 +217,8 @@ class WorkbenchRoot(tk.Tk):
             self._sync_readonly_widget(self.inspector_text, self.state.inspector_text)
             self._sync_listbox(self.pack_list, self.state.available_packs, self.state.selected_pack)
             self._sync_listbox(self.action_list, self.state.available_actions, self.state.selected_action)
-            self._sync_listbox(self.preset_list, self.state.available_presets, self.state.selected_preset)
             self._sync_candidate_editor()
+            self._sync_controls()
             self._sync_selection_details()
             self._sync_readonly_widget(self.status_text, "\n".join(self.state.status_lines))
             self._sync_busy_state()
@@ -216,18 +229,9 @@ class WorkbenchRoot(tk.Tk):
         candidate = self.state.candidate_pack
         selected_action = self._get_selected_candidate_action(candidate)
 
-        self._sync_entry_widget(
-            self.candidate_editor.title_entry,
-            candidate.title if candidate else "",
-        )
-        self._sync_text_widget(
-            self.candidate_editor.summary_text,
-            candidate.summary if candidate else "",
-        )
-        self._sync_text_widget(
-            self.candidate_editor.reasoning_text,
-            candidate.reasoning if candidate else "",
-        )
+        self._sync_entry_widget(self.candidate_editor.title_entry, candidate.title if candidate else "")
+        self._sync_text_widget(self.candidate_editor.summary_text, candidate.summary if candidate else "")
+        self._sync_text_widget(self.candidate_editor.reasoning_text, candidate.reasoning if candidate else "")
         self._sync_entry_widget(
             self.candidate_editor.recommended_presets_entry,
             ", ".join(candidate.recommended_preset_ids) if candidate else "",
@@ -238,10 +242,7 @@ class WorkbenchRoot(tk.Tk):
             self.state.selected_candidate_action,
         )
         self.candidate_editor.action_enabled_var.set(selected_action.enabled if selected_action else False)
-        self._sync_entry_widget(
-            self.candidate_editor.action_name_entry,
-            selected_action.name if selected_action else "",
-        )
+        self._sync_entry_widget(self.candidate_editor.action_name_entry, selected_action.name if selected_action else "")
         self._sync_text_widget(
             self.candidate_editor.action_description_text,
             selected_action.description if selected_action else "",
@@ -255,6 +256,18 @@ class WorkbenchRoot(tk.Tk):
             selected_action.default_preset_id or "" if selected_action else "",
         )
 
+    def _sync_controls(self) -> None:
+        self._sync_combobox(self.sidebar.tone_combo, self.state.available_tones, self.state.selected_tone)
+        self._sync_combobox(self.sidebar.length_combo, self.state.available_lengths, self.state.selected_length)
+        self._sync_combobox(self.sidebar.language_combo, self.state.available_languages, self.state.selected_language)
+        self._sync_combobox(self.sidebar.style_combo, self.state.available_styles, self.state.selected_style)
+        self._sync_combobox(self.sidebar.format_combo, self.state.available_formats, self.state.selected_format)
+        self._sync_combobox(
+            self.sidebar.strictness_combo,
+            self.state.available_strictness_levels,
+            self.state.selected_strictness,
+        )
+
     def _sync_selection_details(self) -> None:
         self._sync_label(
             self.sidebar.pack_detail_label,
@@ -265,8 +278,13 @@ class WorkbenchRoot(tk.Tk):
             self._format_selection_detail("Selected action", self.state.selected_action),
         )
         self._sync_label(
-            self.sidebar.preset_detail_label,
-            self._format_selection_detail("Selected preset", self.state.selected_preset),
+            self.sidebar.controls_detail_label,
+            (
+                "Current controls: "
+                f"tone={self.state.selected_tone}, language={self.state.selected_language}, "
+                f"style={self.state.selected_style}, length={self.state.selected_length}, "
+                f"format={self.state.selected_format}, strictness={self.state.selected_strictness}"
+            ),
         )
 
         candidate_action = self._get_selected_candidate_action(self.state.candidate_pack)
@@ -287,7 +305,16 @@ class WorkbenchRoot(tk.Tk):
         self.run_button.configure(state="disabled" if busy else "normal")
         self.pack_list.configure(state="disabled" if busy else "normal")
         self.action_list.configure(state="disabled" if busy else "normal")
-        self.preset_list.configure(state="disabled" if busy else "normal")
+
+        for combo in (
+            self.sidebar.tone_combo,
+            self.sidebar.length_combo,
+            self.sidebar.language_combo,
+            self.sidebar.style_combo,
+            self.sidebar.format_combo,
+            self.sidebar.strictness_combo,
+        ):
+            combo.configure(state="disabled" if busy else "readonly")
 
         self.candidate_editor.title_entry.configure(state="normal" if candidate_active else "disabled")
         self.candidate_editor.recommended_presets_entry.configure(state="normal" if candidate_active else "disabled")
@@ -357,6 +384,16 @@ class WorkbenchRoot(tk.Tk):
             widget.selection_set(selected_index)
             widget.activate(selected_index)
             widget.see(selected_index)
+
+    @staticmethod
+    def _sync_combobox(widget: ttk.Combobox, values: list[str], selected_value: str) -> None:
+        widget.configure(values=values)
+        if selected_value in values:
+            widget.set(selected_value)
+        elif values:
+            widget.set(values[0])
+        else:
+            widget.set("")
 
     @staticmethod
     def _format_selection_detail(label: str, value: str | None) -> str:

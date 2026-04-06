@@ -1,4 +1,4 @@
-{
+﻿{
   "schema_version": "1.0",
   "pack_id": "meeting_notes",
   "name": "Meeting Notes",
@@ -17,9 +17,9 @@
       "rationale": "Raw meeting notes are often too messy to reuse directly.",
       "input_mode": "single_text",
       "fields": [],
-      "system_prompt": "You clean meeting notes for clarity and structure using tone={tone}, language={language}, style={output_style}, length={length}.",
+      "system_prompt": "You clean meeting notes for clarity and structure using tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}.",
       "user_prompt_template": "Goal: {goal_text}\nClean up these meeting notes:\n{input_text}",
-      "default_preset_id": "professional_email",
+      "default_preset_id": "concise_structured",
       "tags": ["meeting", "notes"]
     },
     {
@@ -31,9 +31,9 @@
       "rationale": "Summaries help convert long notes into a portable update.",
       "input_mode": "single_text",
       "fields": [],
-      "system_prompt": "You summarize meeting content with tone={tone}, language={language}, style={output_style}, length={length}.",
+      "system_prompt": "You summarize meeting content with tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}.",
       "user_prompt_template": "Goal: {goal_text}\nSummarize this meeting content:\n{input_text}",
-      "default_preset_id": "professional_email",
+      "default_preset_id": "concise_structured",
       "tags": ["meeting", "summary"]
     },
     {
@@ -45,9 +45,9 @@
       "rationale": "Decision extraction gives users a structured output for follow-through.",
       "input_mode": "single_text",
       "fields": [],
-      "system_prompt": "You extract decisions and action items with tone={tone}, language={language}, style={output_style}, length={length}.",
+      "system_prompt": "You extract decisions and action items with tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}.",
       "user_prompt_template": "Goal: {goal_text}\nExtract decisions, owners, and next steps from:\n{input_text}",
-      "default_preset_id": "professional_email",
+      "default_preset_id": "analytical_review",
       "tags": ["meeting", "extraction"]
     },
     {
@@ -59,13 +59,14 @@
       "rationale": "Follow-up drafting closes the loop between notes and communication.",
       "input_mode": "single_text",
       "fields": [],
-      "system_prompt": "You write concise follow-up emails using tone={tone}, language={language}, style={output_style}, length={length}.",
+      "system_prompt": "You write concise follow-up emails using tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}.",
       "user_prompt_template": "Goal: {goal_text}\nDraft a follow-up email based on these meeting notes:\n{input_text}",
-      "default_preset_id": "professional_email",
+      "default_preset_id": "professional_clear",
       "tags": ["meeting", "follow-up"]
     }
   ],
   "recommended_preset_ids": [
-    "professional_email"
+    "concise_structured",
+    "professional_clear"
   ]
 }

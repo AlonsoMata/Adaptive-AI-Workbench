@@ -1,10 +1,16 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
 from adaptive_ai_workbench.domain.errors import ConfigurationError, StorageError, ValidationFailure
-from adaptive_ai_workbench.domain.models import ActionDefinition, CandidateActionPack, InstalledActionPack, PresetDefinition
+from adaptive_ai_workbench.domain.models import (
+    ActionDefinition,
+    CandidateActionPack,
+    InstalledActionPack,
+    PresetDefinition,
+    ResponseControls,
+)
 from adaptive_ai_workbench.execution.dispatcher import ExecutionDispatcher
 from adaptive_ai_workbench.model.gateway import ModelGateway, OpenAIModelGateway
 from adaptive_ai_workbench.model.prompt_loader import load_prompt
@@ -18,6 +24,8 @@ from adaptive_ai_workbench.settings import Settings
 
 
 class WorkbenchService:
+    WORKFLOW_GENERATION_MAX_OUTPUT_TOKENS = 2200
+
     def __init__(self, settings: Settings, gateway: ModelGateway | None = None) -> None:
         self.settings = settings
         self.gateway = gateway or OpenAIModelGateway(settings)
@@ -46,8 +54,11 @@ class WorkbenchService:
     def list_builtin_pack_names(self) -> list[str]:
         return self.action_pack_store.list_builtin_templates()
 
+    def list_response_profile_names(self) -> list[str]:
+        return sorted(profile.preset_id for profile in self.preset_store.list_builtin())
+
     def list_builtin_preset_names(self) -> list[str]:
-        return sorted(preset.preset_id for preset in self.preset_store.list_builtin())
+        return self.list_response_profile_names()
 
     def list_builtin_packs_detailed(self) -> list[InstalledActionPack]:
         return [
@@ -55,8 +66,30 @@ class WorkbenchService:
             for pack_id in self.action_pack_store.list_builtin_templates()
         ]
 
-    def list_builtin_presets_detailed(self) -> list[PresetDefinition]:
+    def list_response_profiles_detailed(self) -> list[PresetDefinition]:
         return self.preset_store.list_builtin()
+
+    def list_builtin_presets_detailed(self) -> list[PresetDefinition]:
+        return self.list_response_profiles_detailed()
+
+    def list_response_control_options(self) -> dict[str, list[str]]:
+        return {
+            "tone": list(ResponseControls.tone_options),
+            "length": list(ResponseControls.length_options),
+            "language": list(ResponseControls.language_options),
+            "style": list(ResponseControls.style_options),
+            "format": list(ResponseControls.format_options),
+            "strictness": list(ResponseControls.strictness_options),
+        }
+
+    def get_default_response_controls(self) -> ResponseControls:
+        profiles = self.list_response_profiles_detailed()
+        if profiles:
+            return profiles[0].to_response_controls()
+        return ResponseControls()
+
+    def get_response_profile(self, profile_id: str) -> PresetDefinition:
+        return self.preset_store.load_builtin(profile_id)
 
     def list_catalog_packs_detailed(self) -> list[InstalledActionPack]:
         catalog = {pack.pack_id: pack for pack in self.list_builtin_packs_detailed()}
@@ -73,28 +106,47 @@ class WorkbenchService:
         except StorageError:
             return self.action_pack_store.load_builtin_template(pack_id)
 
-    def get_builtin_preset(self, preset_id: str) -> PresetDefinition:
-        return self.preset_store.load_builtin(preset_id)
+    def build_response_controls(
+        self,
+        *,
+        tone: str,
+        length: str,
+        language: str,
+        output_style: str,
+        format: str,
+        strictness: str,
+    ) -> ResponseControls:
+        return ResponseControls(
+            tone=tone,
+            length=length,
+            language=language,
+            output_style=output_style,
+            format=format,
+            strictness=strictness,
+        )
 
-    def resolve_preset_for_action(
+    def apply_response_profile(self, profile_id: str) -> ResponseControls:
+        return self.get_response_profile(profile_id).to_response_controls()
+
+    def resolve_response_controls_for_action(
         self,
         pack: InstalledActionPack,
         action: ActionDefinition,
-        selected_preset_id: str | None,
-    ) -> PresetDefinition:
-        candidate_ids = [
-            selected_preset_id,
+        selected_controls: ResponseControls | None,
+    ) -> tuple[ResponseControls, PresetDefinition | None]:
+        if selected_controls is not None:
+            return ResponseControls.model_validate(selected_controls.model_dump()), None
+
+        profile_ids = [
             action.default_preset_id,
             *(pack.recommended_preset_ids or []),
         ]
-        for preset_id in candidate_ids:
-            if preset_id:
-                return self.get_builtin_preset(preset_id)
+        for profile_id in profile_ids:
+            if profile_id and self.preset_store.is_known_preset_id(profile_id):
+                profile = self.get_response_profile(profile_id)
+                return profile.to_response_controls(), profile
 
-        presets = self.list_builtin_presets_detailed()
-        if not presets:
-            raise ValidationFailure("No built-in presets are available.")
-        return presets[0]
+        return self.get_default_response_controls(), None
 
     def generate_candidate_workflow(self, goal_text: str) -> CandidateActionPack:
         normalized_goal = normalize_goal_text(goal_text)
@@ -108,18 +160,19 @@ class WorkbenchService:
         generation_prompt = build_candidate_generation_prompt(
             goal_text=normalized_goal,
             system_prompt=load_prompt("generate_action_pack", self.settings.templates_dir),
-            presets=self.list_builtin_presets_detailed(),
+            presets=self.list_response_profiles_detailed(),
         )
         result = self.gateway.generate_text(
             system_prompt=generation_prompt.system_prompt,
             user_prompt=generation_prompt.user_prompt,
+            max_output_tokens=self.WORKFLOW_GENERATION_MAX_OUTPUT_TOKENS,
         )
         candidate = parse_candidate_action_pack(result.output_text)
         return self.validate_candidate_workflow(candidate)
 
     def validate_candidate_workflow(self, candidate: CandidateActionPack) -> CandidateActionPack:
         validated_candidate = validate_candidate_pack(candidate)
-        self._validate_candidate_presets(validated_candidate)
+        self._validate_candidate_profiles(validated_candidate)
         return validated_candidate
 
     def install_candidate_workflow(self, candidate: CandidateActionPack) -> InstalledActionPack:
@@ -136,22 +189,22 @@ class WorkbenchService:
         action_id: str,
         goal_text: str,
         input_text: str,
-        selected_preset_id: str | None,
+        selected_controls: ResponseControls | None,
     ) -> dict[str, Any]:
         pack = self.get_catalog_pack(pack_id)
         action = self._find_action(pack, action_id)
-        preset = self.resolve_preset_for_action(pack, action, selected_preset_id)
+        response_controls, profile = self.resolve_response_controls_for_action(pack, action, selected_controls)
         preview = self.dispatcher.dispatch(
             action=action,
             input_text=input_text,
-            preset=preset,
+            response_controls=response_controls,
             goal_text=goal_text,
         )
         preview["pack_id"] = pack.pack_id
         preview["pack_name"] = pack.name
         preview["action_name"] = action.name
-        preview["preset_name"] = preset.name
-        preview["preset_id"] = preset.preset_id
+        preview["control_profile_id"] = profile.preset_id if profile else None
+        preview["control_profile_name"] = profile.name if profile else None
         return preview
 
     def preview_builtin_action(
@@ -160,14 +213,14 @@ class WorkbenchService:
         action_id: str,
         goal_text: str,
         input_text: str,
-        selected_preset_id: str | None,
+        selected_controls: ResponseControls | None,
     ) -> dict[str, Any]:
         return self.preview_action(
             pack_id=pack_id,
             action_id=action_id,
             goal_text=goal_text,
             input_text=input_text,
-            selected_preset_id=selected_preset_id,
+            selected_controls=selected_controls,
         )
 
     def execute_action(
@@ -176,14 +229,14 @@ class WorkbenchService:
         action_id: str,
         goal_text: str,
         input_text: str,
-        selected_preset_id: str | None,
+        selected_controls: ResponseControls | None,
     ) -> dict[str, Any]:
         preview = self.preview_action(
             pack_id=pack_id,
             action_id=action_id,
             goal_text=goal_text,
             input_text=input_text,
-            selected_preset_id=selected_preset_id,
+            selected_controls=selected_controls,
         )
 
         if not self.gateway.is_configured():
@@ -221,33 +274,34 @@ class WorkbenchService:
         action_id: str,
         goal_text: str,
         input_text: str,
-        selected_preset_id: str | None,
+        selected_controls: ResponseControls | None,
     ) -> dict[str, Any]:
         return self.execute_action(
             pack_id=pack_id,
             action_id=action_id,
             goal_text=goal_text,
             input_text=input_text,
-            selected_preset_id=selected_preset_id,
+            selected_controls=selected_controls,
         )
 
-    def _validate_candidate_presets(self, candidate: CandidateActionPack) -> None:
-        valid_preset_ids = {preset.preset_id for preset in self.list_builtin_presets_detailed()}
-        invalid_recommended = [preset_id for preset_id in candidate.recommended_preset_ids if preset_id not in valid_preset_ids]
+    def _validate_candidate_profiles(self, candidate: CandidateActionPack) -> None:
+        invalid_recommended = [
+            profile_id for profile_id in candidate.recommended_preset_ids if not self.preset_store.is_known_preset_id(profile_id)
+        ]
         if invalid_recommended:
             raise ValidationFailure(
-                "Candidate workflow references unknown recommended presets: "
+                "Candidate workflow references unknown response profiles: "
                 + ", ".join(sorted(invalid_recommended))
             )
 
         invalid_defaults = [
             action.default_preset_id
             for action in candidate.actions
-            if action.default_preset_id and action.default_preset_id not in valid_preset_ids
+            if action.default_preset_id and not self.preset_store.is_known_preset_id(action.default_preset_id)
         ]
         if invalid_defaults:
             raise ValidationFailure(
-                "Candidate workflow references unknown action default presets: "
+                "Candidate workflow references unknown action default response profiles: "
                 + ", ".join(sorted(set(invalid_defaults)))
             )
 
@@ -263,3 +317,6 @@ class WorkbenchService:
         if not directory.exists():
             return []
         return sorted(path.stem for path in directory.glob(f"*{suffix}") if path.is_file())
+
+
+

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from typing import Any, Callable
@@ -9,6 +9,7 @@ from adaptive_ai_workbench.domain.models import (
     CandidateActionPack,
     InstalledActionPack,
     PresetDefinition,
+    ResponseControls,
 )
 from adaptive_ai_workbench.services.workbench_service import WorkbenchService
 from adaptive_ai_workbench.ui.state import AppState
@@ -19,18 +20,15 @@ class AppController:
         self.service = service
         self.state = state
         self._packs: dict[str, InstalledActionPack] = {}
-        self._presets: dict[str, PresetDefinition] = {}
+        self._profiles: dict[str, PresetDefinition] = {}
 
     def bootstrap(self) -> None:
         self._reload_catalog()
         self.append_status(self.service.health_status())
         self.append_status(
             f"Discovered {len(self.service.list_builtin_prompt_names())} prompt templates, "
-            f"{len(self.state.available_packs)} installed packs, and {len(self.state.available_presets)} presets."
+            f"{len(self.state.available_packs)} installed packs, and {len(self._profiles)} response profiles."
         )
-        if self.state.available_presets and self.state.selected_preset is None:
-            self.state.selected_preset = self.state.available_presets[0]
-            self.append_status(f"Selected preset: {self.state.selected_preset}")
         if self.state.available_packs:
             self.handle_pack_selected(self.state.available_packs[0])
 
@@ -40,14 +38,9 @@ class AppController:
             return
 
         previous_pack = self.state.selected_pack
-        previous_preset = self.state.selected_preset
         previous_action = self.state.selected_action
 
         self._reload_catalog()
-        if previous_preset in self._presets:
-            self.state.selected_preset = previous_preset
-        elif self.state.available_presets:
-            self.state.selected_preset = self.state.available_presets[0]
 
         if previous_pack in self._packs:
             self.handle_pack_selected(previous_pack)
@@ -201,7 +194,7 @@ class AppController:
                     "title": title,
                     "summary": summary,
                     "reasoning": reasoning,
-                    "recommended_preset_ids": self._parse_preset_ids(recommended_preset_ids_text),
+                    "recommended_preset_ids": self._parse_profile_ids(recommended_preset_ids_text),
                     "actions": updated_actions,
                 }
             )
@@ -259,8 +252,8 @@ class AppController:
         self.state.selected_pack = pack_id
         self.state.selected_action = None
         self.state.available_actions = [action.action_id for action in pack.actions]
-        if pack.recommended_preset_ids and self.state.selected_preset not in pack.recommended_preset_ids:
-            self.state.selected_preset = pack.recommended_preset_ids[0]
+        if pack.recommended_preset_ids:
+            self._apply_profile_to_state(pack.recommended_preset_ids[0], announce=False)
         self.state.inspector_text = self._render_pack_details(pack)
         self.append_status(f"Selected installed pack: {pack.name}")
 
@@ -278,25 +271,45 @@ class AppController:
             action_id=action.action_id,
             goal_text=goal_text,
             input_text=input_text,
-            selected_preset_id=self.state.selected_preset,
+            selected_controls=self._current_response_controls(),
         )
-        preset = self.service.resolve_preset_for_action(pack, action, self.state.selected_preset)
-
         self.state.goal_text = goal_text
         self.state.input_text = input_text
         self.state.selected_action = action_id
-        self.state.selected_preset = preset.preset_id
-        self.state.inspector_text = self._render_action_details(pack, action, preset, preview)
+        self.state.inspector_text = self._render_action_details(pack, action, preview)
         self.append_status(f"Selected action: {action.name}")
 
-    def handle_preset_selected(self, preset_id: str | None, goal_text: str, input_text: str) -> None:
-        if self.state.busy or not preset_id or preset_id not in self._presets:
+    def handle_response_controls_changed(
+        self,
+        *,
+        tone: str,
+        length: str,
+        language: str,
+        output_style: str,
+        format: str,
+        strictness: str,
+        goal_text: str,
+        input_text: str,
+    ) -> None:
+        if self.state.busy:
             return
 
+        controls = self.service.build_response_controls(
+            tone=tone,
+            length=length,
+            language=language,
+            output_style=output_style,
+            format=format,
+            strictness=strictness,
+        )
+        self._set_response_controls(controls)
         self.state.goal_text = goal_text
         self.state.input_text = input_text
-        self.state.selected_preset = preset_id
-        self.append_status(f"Selected preset: {self._presets[preset_id].name}")
+        self.append_status(
+            "Updated response controls: "
+            f"tone={controls.tone}, length={controls.length}, language={controls.language}, "
+            f"style={controls.output_style}, format={controls.format}, strictness={controls.strictness}."
+        )
 
         if self.state.selected_pack and self.state.selected_action:
             self.handle_action_selected(self.state.selected_action, goal_text, input_text)
@@ -319,7 +332,7 @@ class AppController:
 
         pack_id = self.state.selected_pack
         action_id = self.state.selected_action
-        selected_preset_id = self.state.selected_preset
+        controls = self._current_response_controls()
 
         self.state.busy = True
         self.state.output_text = "Running workflow action...\nThe result will appear here when the model responds."
@@ -329,7 +342,7 @@ class AppController:
             action_id=action_id,
             goal_text=goal_text,
             input_text=input_text,
-            selected_preset_id=selected_preset_id,
+            selected_controls=controls,
         )
 
     def finish_run_action(self, result: dict[str, Any]) -> None:
@@ -340,7 +353,7 @@ class AppController:
         if mode == "live":
             self.state.output_text = self._render_live_execution_result(result)
             self.append_status(
-                f"Ran {preview['action_name']} live with preset {preview['preset_name']}."
+                f"Ran {preview['action_name']} live with tone={preview['tone']} and format={preview['format']}."
             )
             return
 
@@ -373,18 +386,27 @@ class AppController:
 
     def _reload_catalog(self) -> None:
         packs = self.service.list_catalog_packs_detailed()
-        presets = self.service.list_builtin_presets_detailed()
+        profiles = self.service.list_response_profiles_detailed()
         self._packs = {pack.pack_id: pack for pack in packs}
-        self._presets = {preset.preset_id: preset for preset in presets}
+        self._profiles = {profile.preset_id: profile for profile in profiles}
         self.state.available_packs = [pack.pack_id for pack in packs]
-        self.state.available_presets = [preset.preset_id for preset in presets]
+        self.state.available_actions = [] if self.state.selected_pack not in self._packs else self.state.available_actions
+
+        control_options = self.service.list_response_control_options()
+        self.state.available_tones = control_options["tone"]
+        self.state.available_lengths = control_options["length"]
+        self.state.available_languages = control_options["language"]
+        self.state.available_styles = control_options["style"]
+        self.state.available_formats = control_options["format"]
+        self.state.available_strictness_levels = control_options["strictness"]
 
         if self.state.selected_pack not in self._packs:
             self.state.selected_pack = None
             self.state.selected_action = None
             self.state.available_actions = []
-        if self.state.selected_preset not in self._presets:
-            self.state.selected_preset = None
+
+        if not self.state.selected_tone:
+            self._set_response_controls(self.service.get_default_response_controls())
 
     def _set_candidate_state(
         self,
@@ -405,6 +427,30 @@ class AppController:
                 self.state.available_candidate_actions[0] if self.state.available_candidate_actions else None
             )
 
+    def _set_response_controls(self, controls: ResponseControls) -> None:
+        self.state.selected_tone = controls.tone
+        self.state.selected_length = controls.length
+        self.state.selected_language = controls.language
+        self.state.selected_style = controls.output_style
+        self.state.selected_format = controls.format
+        self.state.selected_strictness = controls.strictness
+
+    def _apply_profile_to_state(self, profile_id: str, announce: bool = True) -> None:
+        profile = self.service.get_response_profile(profile_id)
+        self._set_response_controls(profile.to_response_controls())
+        if announce:
+            self.append_status(f"Applied response profile: {profile.name}")
+
+    def _current_response_controls(self) -> ResponseControls:
+        return self.service.build_response_controls(
+            tone=self.state.selected_tone,
+            length=self.state.selected_length,
+            language=self.state.selected_language,
+            output_style=self.state.selected_style,
+            format=self.state.selected_format,
+            strictness=self.state.selected_strictness,
+        )
+
     @staticmethod
     def _find_action(pack: InstalledActionPack, action_id: str) -> ActionDefinition:
         for action in pack.actions:
@@ -422,7 +468,7 @@ class AppController:
         raise ValidationFailure(f"Action not found in candidate pack {candidate.pack_id}: {action_id}")
 
     @staticmethod
-    def _parse_preset_ids(raw_text: str) -> list[str]:
+    def _parse_profile_ids(raw_text: str) -> list[str]:
         return [value.strip() for value in raw_text.split(",") if value.strip()]
 
     @staticmethod
@@ -435,7 +481,7 @@ class AppController:
             f"Description: {pack.description}\n"
             f"Source: {pack.source.value}\n"
             f"Enabled: {'Yes' if pack.enabled else 'No'}\n"
-            f"Recommended Presets: {', '.join(pack.recommended_preset_ids) or 'None'}\n\n"
+            f"Suggested Profiles: {', '.join(pack.recommended_preset_ids) or 'None'}\n\n"
             f"Available Actions:\n{action_lines}"
         )
 
@@ -443,7 +489,6 @@ class AppController:
     def _render_action_details(
         pack: InstalledActionPack,
         action: ActionDefinition,
-        preset: PresetDefinition,
         preview: dict[str, object],
     ) -> str:
         return (
@@ -453,8 +498,8 @@ class AppController:
             f"Kind: {action.kind.value}\n"
             f"Description: {action.description}\n"
             f"Rationale: {action.rationale}\n"
-            f"Default Preset: {action.default_preset_id or 'None'}\n"
-            f"Selected Preset: {preset.name} ({preset.preset_id})\n"
+            f"Default Profile: {action.default_preset_id or 'None'}\n"
+            f"Response Controls: tone={preview['tone']}, language={preview['language']}, style={preview['output_style']}, length={preview['length']}, format={preview['format']}, strictness={preview['strictness']}\n"
             f"Enabled: {'Yes' if action.enabled else 'No'}\n\n"
             f"Prompt Preview\n"
             f"System Prompt:\n{preview['system_prompt']}\n\n"
@@ -470,10 +515,10 @@ class AppController:
                 f"  Enabled: {'Yes' if action.enabled else 'No'}\n"
                 f"  Description: {action.description}\n"
                 f"  Rationale: {action.rationale}\n"
-                f"  Default Preset: {action.default_preset_id or 'None'}"
+                f"  Default Profile: {action.default_preset_id or 'None'}"
             )
         warnings = "\n".join(f"- {warning}" for warning in candidate.warnings) or "None"
-        recommended_presets = ", ".join(candidate.recommended_preset_ids) or "None"
+        recommended_profiles = ", ".join(candidate.recommended_preset_ids) or "None"
         generated_actions = "\n\n".join(action_lines)
         return (
             "Candidate Workflow\n"
@@ -483,7 +528,7 @@ class AppController:
             f"Summary: {candidate.summary}\n"
             f"Reasoning: {candidate.reasoning}\n"
             f"Warnings:\n{warnings}\n\n"
-            f"Recommended Presets: {recommended_presets}\n\n"
+            f"Suggested Profiles: {recommended_profiles}\n\n"
             f"Generated Actions:\n{generated_actions}"
         )
 
@@ -499,7 +544,7 @@ class AppController:
             f"Enabled: {'Yes' if action.enabled else 'No'}\n"
             f"Description: {action.description}\n"
             f"Rationale: {action.rationale}\n"
-            f"Default Preset: {action.default_preset_id or 'None'}\n\n"
+            f"Default Profile: {action.default_preset_id or 'None'}\n\n"
             "Non-editable in v1:\n"
             f"System Prompt:\n{action.system_prompt}\n\n"
             f"User Prompt Template:\n{action.user_prompt_template}"
@@ -517,7 +562,7 @@ class AppController:
             "Live Execution Result\n"
             f"Pack: {preview['pack_name']}\n"
             f"Action: {preview['action_name']}\n"
-            f"Preset: {preview['preset_name']} ({preview['preset_id']})\n"
+            f"Controls: tone={preview['tone']}, language={preview['language']}, style={preview['output_style']}, length={preview['length']}, format={preview['format']}, strictness={preview['strictness']}\n"
             f"Model: {request['model']}\n\n"
             "Generated Output:\n"
             f"{result['output_text']}\n\n"
@@ -547,13 +592,19 @@ class AppController:
             "action_id": preview["action_id"],
             "kind": preview["kind"],
             "handler": preview["handler"],
-            "preset_id": preview["preset_id"],
+            "tone": preview["tone"],
+            "language": preview["language"],
+            "output_style": preview["output_style"],
+            "length": preview["length"],
+            "format": preview["format"],
+            "strictness": preview["strictness"],
+            "control_profile_id": preview["control_profile_id"],
         }
         return (
             "Execution Request Preview\n"
             f"Pack: {preview['pack_name']}\n"
             f"Action: {preview['action_name']}\n"
-            f"Preset: {preview['preset_name']} ({preview['preset_id']})\n\n"
+            f"Controls: tone={preview['tone']}, language={preview['language']}, style={preview['output_style']}, length={preview['length']}, format={preview['format']}, strictness={preview['strictness']}\n\n"
             f"System Prompt:\n{preview['system_prompt']}\n\n"
             f"User Prompt:\n{preview['user_prompt']}\n\n"
             f"Metadata:\n{json.dumps(metadata, indent=2)}"

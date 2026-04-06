@@ -1,0 +1,12 @@
+﻿{
+  "schema_version": "1.0",
+  "preset_id": "concise_structured",
+  "name": "Concise Structured",
+  "description": "Compact, structured output for summaries, bullets, and job materials.",
+  "tone": "neutral",
+  "language": "en",
+  "output_style": "concise",
+  "length": "short",
+  "format": "bullet_points",
+  "strictness": "medium"
+}

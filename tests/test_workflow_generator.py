@@ -59,7 +59,7 @@ def test_generation_prompt_template_includes_schema_complete_example() -> None:
     assert '"action_id": "draft_email"' in system_prompt
     assert '"system_prompt": "You are an expert email assistant.' in system_prompt
     assert '"user_prompt_template": "Goal: {goal_text}' in system_prompt
-    assert "Allowed placeholders only: {goal_text}, {input_text}, {tone}, {language}, {output_style}, {length}, {instruction_text}." in system_prompt
+    assert "Allowed placeholders only: {goal_text}, {input_text}, {tone}, {language}, {output_style}, {length}, {format}, {strictness}, {instruction_text}." in system_prompt
     assert "Complete ActionDefinition objects only." in system_prompt
 
 
@@ -81,7 +81,9 @@ def test_generation_prompt_forbids_markdown_fences_and_rule_restatement() -> Non
 
     assert "Do not use markdown fences." in prompt.user_prompt
     assert "Do not restate the rules, placeholders, or schema in the response." in prompt.user_prompt
+    assert "Treat recommended_preset_ids and default_preset_id as universal response-profile ids" in prompt.user_prompt
 
     system_prompt = load_prompt("generate_action_pack", templates_dir())
     assert "Do not wrap the JSON in ```json fences." in system_prompt
     assert "Do not restate the rules, allowed placeholders, or schema before the JSON object." in system_prompt
+    assert "Prefer universal response-profile ids such as professional_clear, concise_structured, analytical_review, formal_report, friendly_polished, or clear_spanish." in system_prompt
