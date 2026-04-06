@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
@@ -10,6 +10,7 @@ from adaptive_ai_workbench.ui.controller import AppController
 from adaptive_ai_workbench.ui.state import AppState
 from adaptive_ai_workbench.ui.widgets import (
     CandidateEditorWidgets,
+    SidebarWidgets,
     build_candidate_editor,
     build_editor_panel,
     build_goal_panel,
@@ -28,20 +29,20 @@ class WorkbenchRoot(tk.Tk):
         self._syncing = False
 
         self.title(settings.app_name)
-        self.geometry("1280x980")
-        self.minsize(1040, 800)
+        self.geometry("1440x1020")
+        self.minsize(1180, 860)
 
         self._build_layout()
         self.controller.bootstrap()
         self._refresh_from_state()
 
     def _build_layout(self) -> None:
-        self.columnconfigure(0, weight=4)
-        self.columnconfigure(1, weight=1)
-        self.rowconfigure(1, weight=0, minsize=180)
-        self.rowconfigure(2, weight=3)
-        self.rowconfigure(3, weight=2)
-        self.rowconfigure(4, weight=2)
+        self.columnconfigure(0, weight=7)
+        self.columnconfigure(1, weight=2)
+        self.rowconfigure(1, weight=1, minsize=175)
+        self.rowconfigure(2, weight=2, minsize=180)
+        self.rowconfigure(3, weight=2, minsize=175)
+        self.rowconfigure(4, weight=5, minsize=360)
         self.rowconfigure(5, weight=0)
 
         toolbar = ttk.Frame(self)
@@ -60,8 +61,11 @@ class WorkbenchRoot(tk.Tk):
         workflow_request_frame, self.workflow_request_text = build_goal_panel(self)
         workflow_request_frame.grid(row=1, column=0, sticky="nsew", padx=(12, 6), pady=(0, 6))
 
-        sidebar_frame, self.pack_list, self.action_list, self.preset_list = build_sidebar(self)
+        sidebar_frame, self.sidebar = build_sidebar(self)
         sidebar_frame.grid(row=1, column=1, rowspan=4, sticky="nsew", padx=(6, 12), pady=(0, 6))
+        self.pack_list = self.sidebar.pack_list
+        self.action_list = self.sidebar.action_list
+        self.preset_list = self.sidebar.preset_list
 
         editor_frame, self.input_text, self.output_text = build_editor_panel(self)
         editor_frame.grid(row=2, column=0, sticky="nsew", padx=(12, 6), pady=(0, 6))
@@ -202,6 +206,7 @@ class WorkbenchRoot(tk.Tk):
             self._sync_listbox(self.action_list, self.state.available_actions, self.state.selected_action)
             self._sync_listbox(self.preset_list, self.state.available_presets, self.state.selected_preset)
             self._sync_candidate_editor()
+            self._sync_selection_details()
             self._sync_readonly_widget(self.status_text, "\n".join(self.state.status_lines))
             self._sync_busy_state()
         finally:
@@ -249,6 +254,27 @@ class WorkbenchRoot(tk.Tk):
             self.candidate_editor.action_default_preset_entry,
             selected_action.default_preset_id or "" if selected_action else "",
         )
+
+    def _sync_selection_details(self) -> None:
+        self._sync_label(
+            self.sidebar.pack_detail_label,
+            self._format_selection_detail("Selected pack", self.state.selected_pack),
+        )
+        self._sync_label(
+            self.sidebar.action_detail_label,
+            self._format_selection_detail("Selected action", self.state.selected_action),
+        )
+        self._sync_label(
+            self.sidebar.preset_detail_label,
+            self._format_selection_detail("Selected preset", self.state.selected_preset),
+        )
+
+        candidate_action = self._get_selected_candidate_action(self.state.candidate_pack)
+        if candidate_action is None:
+            detail = "No candidate action selected"
+        else:
+            detail = f"Selected candidate action: {candidate_action.name} ({candidate_action.action_id})"
+        self._sync_label(self.candidate_editor.action_detail_label, detail)
 
     def _sync_busy_state(self) -> None:
         busy = self.state.busy
@@ -315,6 +341,10 @@ class WorkbenchRoot(tk.Tk):
         widget.insert(0, content)
 
     @staticmethod
+    def _sync_label(widget: ttk.Label, content: str) -> None:
+        widget.configure(text=content)
+
+    @staticmethod
     def _sync_listbox(widget: tk.Listbox, items: list[str], selected_item: str | None) -> None:
         widget.delete(0, "end")
         widget.selection_clear(0, "end")
@@ -327,6 +357,10 @@ class WorkbenchRoot(tk.Tk):
             widget.selection_set(selected_index)
             widget.activate(selected_index)
             widget.see(selected_index)
+
+    @staticmethod
+    def _format_selection_detail(label: str, value: str | None) -> str:
+        return f"{label}: {value}" if value else f"{label}: nothing selected"
 
     @staticmethod
     def _read_text_widget(widget: tk.Text) -> str:
