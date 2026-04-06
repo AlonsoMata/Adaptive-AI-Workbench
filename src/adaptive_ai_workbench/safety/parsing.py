@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+from pydantic import ValidationError
+
 from adaptive_ai_workbench.domain.errors import ModelOutputError
 from adaptive_ai_workbench.domain.models import CandidateActionPack
 from adaptive_ai_workbench.safety.repair import repair_candidate_payload
@@ -43,6 +45,8 @@ def parse_candidate_action_pack(raw_text: str) -> CandidateActionPack:
     repaired_payload = repair_candidate_payload(payload)
     try:
         return CandidateActionPack.model_validate(repaired_payload)
+    except ValidationError as exc:
+        raise ModelOutputError(_build_candidate_validation_message(exc)) from exc
     except Exception as exc:
         raise ModelOutputError(f"Candidate action pack validation failed: {exc}") from exc
 
@@ -60,3 +64,26 @@ def _parse_json_payload(raw_text: str) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise ModelOutputError("Model output must be a JSON object.")
     return payload
+
+
+def _build_candidate_validation_message(error: ValidationError) -> str:
+    missing_action_fields = sorted(
+        {
+            str(details["loc"][-1])
+            for details in error.errors()
+            if details.get("type") == "missing"
+            and isinstance(details.get("loc"), tuple)
+            and len(details["loc"]) >= 3
+            and details["loc"][0] == "actions"
+        }
+    )
+    detailed_message = f"Candidate action pack validation failed: {error}"
+    if not missing_action_fields:
+        return detailed_message
+
+    missing_list = ", ".join(missing_action_fields)
+    return (
+        "Generated workflow is missing required action fields. "
+        f"Missing fields include: {missing_list}.\n"
+        f"{detailed_message}"
+    )

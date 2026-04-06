@@ -115,13 +115,15 @@ class WorkbenchService:
             user_prompt=generation_prompt.user_prompt,
         )
         candidate = parse_candidate_action_pack(result.output_text)
+        return self.validate_candidate_workflow(candidate)
+
+    def validate_candidate_workflow(self, candidate: CandidateActionPack) -> CandidateActionPack:
         validated_candidate = validate_candidate_pack(candidate)
         self._validate_candidate_presets(validated_candidate)
         return validated_candidate
 
     def install_candidate_workflow(self, candidate: CandidateActionPack) -> InstalledActionPack:
-        validated_candidate = validate_candidate_pack(candidate)
-        self._validate_candidate_presets(validated_candidate)
+        validated_candidate = self.validate_candidate_workflow(candidate)
         if validated_candidate.pack_id in {pack.pack_id for pack in self.list_catalog_packs_detailed()}:
             raise ValidationFailure(
                 f"A workflow pack with id '{validated_candidate.pack_id}' already exists in the catalog."

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from typing import Any, Callable
@@ -69,21 +69,25 @@ class AppController:
 
         self.state.goal_text = goal_text
         self.state.busy = True
-        self.state.inspector_text = "Generating workflow candidate...\nThe candidate preview will appear here when the model responds."
+        self._set_candidate_state(None)
+        self.state.inspector_text = (
+            "Generating workflow candidate...\n"
+            "The candidate preview will appear here when the model responds."
+        )
         self.append_status("Generating workflow candidate from the current goal...")
         return lambda: self.service.generate_candidate_workflow(goal_text)
 
     def finish_generate_workflow(self, candidate: CandidateActionPack) -> None:
         self.state.busy = False
-        self.state.candidate_pack = candidate
+        self._set_candidate_state(candidate)
         self.state.inspector_text = self._render_candidate_details(candidate)
         self.append_status(
-            f"Generated candidate workflow: {candidate.title}. Review it and install when ready."
+            f"Generated candidate workflow: {candidate.title}. Review it, edit if needed, and install when ready."
         )
 
     def fail_generate_workflow(self, error: Exception) -> None:
         self.state.busy = False
-        self.state.candidate_pack = None
+        self._set_candidate_state(None)
         if isinstance(error, ConfigurationError):
             self.state.inspector_text = self._render_generation_error(
                 "Workflow Generation Unavailable",
@@ -131,10 +135,121 @@ class AppController:
             self.append_status(f"Workflow installation failed: {exc}")
             return
 
-        self.state.candidate_pack = None
+        self._set_candidate_state(None)
         self._reload_catalog()
         self.handle_pack_selected(installed.pack_id)
         self.append_status(f"Installed workflow pack: {installed.name}.")
+
+    def handle_candidate_action_selected(self, action_id: str | None) -> None:
+        if (
+            self.state.busy
+            or not self.state.candidate_pack
+            or not action_id
+            or action_id not in self.state.available_candidate_actions
+        ):
+            return
+
+        action = self._find_candidate_action(self.state.candidate_pack, action_id)
+        self.state.selected_candidate_action = action.action_id
+        self.state.inspector_text = self._render_candidate_action_details(self.state.candidate_pack, action)
+        self.append_status(f"Selected candidate action: {action.name}")
+
+    def handle_apply_candidate_edits(
+        self,
+        title: str,
+        summary: str,
+        reasoning: str,
+        recommended_preset_ids_text: str,
+        action_name: str,
+        action_description: str,
+        action_rationale: str,
+        action_default_preset_id: str,
+        action_enabled: bool,
+    ) -> None:
+        if self.state.busy:
+            self.append_status("Wait for the current operation to finish before editing the candidate workflow.")
+            return
+        candidate = self.state.candidate_pack
+        if candidate is None:
+            self.append_status("Generate a candidate workflow before editing it.")
+            return
+        if self.state.selected_candidate_action is None:
+            self.append_status("Select a candidate action before applying action-level edits.")
+            return
+
+        selected_action_id = self.state.selected_candidate_action
+        try:
+            updated_actions: list[ActionDefinition] = []
+            for action in candidate.actions:
+                if action.action_id != selected_action_id:
+                    updated_actions.append(action)
+                    continue
+                updated_actions.append(
+                    action.model_copy(
+                        update={
+                            "enabled": action_enabled,
+                            "name": action_name,
+                            "description": action_description,
+                            "rationale": action_rationale,
+                            "default_preset_id": action_default_preset_id.strip() or None,
+                        }
+                    )
+                )
+
+            updated_candidate = candidate.model_copy(
+                update={
+                    "title": title,
+                    "summary": summary,
+                    "reasoning": reasoning,
+                    "recommended_preset_ids": self._parse_preset_ids(recommended_preset_ids_text),
+                    "actions": updated_actions,
+                }
+            )
+            validated_candidate = self.service.validate_candidate_workflow(updated_candidate)
+        except WorkbenchError as exc:
+            self.state.inspector_text = self._render_generation_error("Candidate Edit Rejected", str(exc))
+            self.append_status(f"Candidate edit rejected: {exc}")
+            return
+        except ValueError as exc:
+            self.state.inspector_text = self._render_generation_error("Candidate Edit Rejected", str(exc))
+            self.append_status(f"Candidate edit rejected: {exc}")
+            return
+
+        self._set_candidate_state(validated_candidate, preferred_action_id=selected_action_id)
+        action = self._find_candidate_action(validated_candidate, self.state.selected_candidate_action)
+        self.state.inspector_text = self._render_candidate_action_details(validated_candidate, action)
+        self.append_status(f"Updated candidate workflow: {validated_candidate.title}")
+
+    def handle_remove_candidate_action(self) -> None:
+        if self.state.busy:
+            self.append_status("Wait for the current operation to finish before editing the candidate workflow.")
+            return
+        candidate = self.state.candidate_pack
+        selected_action_id = self.state.selected_candidate_action
+        if candidate is None or selected_action_id is None:
+            self.append_status("Select a candidate action before removing it.")
+            return
+
+        try:
+            remaining_actions = [action for action in candidate.actions if action.action_id != selected_action_id]
+            updated_candidate = candidate.model_copy(update={"actions": remaining_actions})
+            validated_candidate = self.service.validate_candidate_workflow(updated_candidate)
+        except WorkbenchError as exc:
+            self.state.inspector_text = self._render_generation_error("Candidate Edit Rejected", str(exc))
+            self.append_status(f"Candidate edit rejected: {exc}")
+            return
+        except ValueError as exc:
+            self.state.inspector_text = self._render_generation_error("Candidate Edit Rejected", str(exc))
+            self.append_status(f"Candidate edit rejected: {exc}")
+            return
+
+        self._set_candidate_state(validated_candidate)
+        if self.state.selected_candidate_action is None:
+            self.state.inspector_text = self._render_candidate_details(validated_candidate)
+        else:
+            selected_action = self._find_candidate_action(validated_candidate, self.state.selected_candidate_action)
+            self.state.inspector_text = self._render_candidate_action_details(validated_candidate, selected_action)
+        self.append_status(f"Removed candidate action: {selected_action_id}")
 
     def handle_pack_selected(self, pack_id: str | None) -> None:
         if self.state.busy or not pack_id or pack_id not in self._packs:
@@ -271,12 +386,44 @@ class AppController:
         if self.state.selected_preset not in self._presets:
             self.state.selected_preset = None
 
+    def _set_candidate_state(
+        self,
+        candidate: CandidateActionPack | None,
+        preferred_action_id: str | None = None,
+    ) -> None:
+        self.state.candidate_pack = candidate
+        if candidate is None:
+            self.state.available_candidate_actions = []
+            self.state.selected_candidate_action = None
+            return
+
+        self.state.available_candidate_actions = [action.action_id for action in candidate.actions]
+        if preferred_action_id in self.state.available_candidate_actions:
+            self.state.selected_candidate_action = preferred_action_id
+        else:
+            self.state.selected_candidate_action = (
+                self.state.available_candidate_actions[0] if self.state.available_candidate_actions else None
+            )
+
     @staticmethod
     def _find_action(pack: InstalledActionPack, action_id: str) -> ActionDefinition:
         for action in pack.actions:
             if action.action_id == action_id:
                 return action
         raise ValidationFailure(f"Action not found in pack {pack.pack_id}: {action_id}")
+
+    @staticmethod
+    def _find_candidate_action(candidate: CandidateActionPack, action_id: str | None) -> ActionDefinition:
+        if action_id is None:
+            raise ValidationFailure(f"Action not found in candidate pack {candidate.pack_id}: {action_id}")
+        for action in candidate.actions:
+            if action.action_id == action_id:
+                return action
+        raise ValidationFailure(f"Action not found in candidate pack {candidate.pack_id}: {action_id}")
+
+    @staticmethod
+    def _parse_preset_ids(raw_text: str) -> list[str]:
+        return [value.strip() for value in raw_text.split(",") if value.strip()]
 
     @staticmethod
     def _render_pack_details(pack: InstalledActionPack) -> str:
@@ -320,6 +467,7 @@ class AppController:
         for action in candidate.actions:
             action_lines.append(
                 f"- {action.name} ({action.kind.value})\n"
+                f"  Enabled: {'Yes' if action.enabled else 'No'}\n"
                 f"  Description: {action.description}\n"
                 f"  Rationale: {action.rationale}\n"
                 f"  Default Preset: {action.default_preset_id or 'None'}"
@@ -329,7 +477,7 @@ class AppController:
         generated_actions = "\n\n".join(action_lines)
         return (
             "Candidate Workflow\n"
-            "Status: Candidate only. Review before installation.\n"
+            "Status: Candidate only. Review and edit before installation.\n"
             f"Pack Title: {candidate.title}\n"
             f"Pack ID: {candidate.pack_id}\n"
             f"Summary: {candidate.summary}\n"
@@ -337,6 +485,24 @@ class AppController:
             f"Warnings:\n{warnings}\n\n"
             f"Recommended Presets: {recommended_presets}\n\n"
             f"Generated Actions:\n{generated_actions}"
+        )
+
+    @staticmethod
+    def _render_candidate_action_details(candidate: CandidateActionPack, action: ActionDefinition) -> str:
+        return (
+            "Candidate Workflow Action\n"
+            "Status: Candidate only. Edits apply only to the review copy until installation.\n"
+            f"Pack Title: {candidate.title}\n"
+            f"Action Name: {action.name}\n"
+            f"Action ID: {action.action_id}\n"
+            f"Kind: {action.kind.value}\n"
+            f"Enabled: {'Yes' if action.enabled else 'No'}\n"
+            f"Description: {action.description}\n"
+            f"Rationale: {action.rationale}\n"
+            f"Default Preset: {action.default_preset_id or 'None'}\n\n"
+            "Non-editable in v1:\n"
+            f"System Prompt:\n{action.system_prompt}\n\n"
+            f"User Prompt Template:\n{action.user_prompt_template}"
         )
 
     @staticmethod

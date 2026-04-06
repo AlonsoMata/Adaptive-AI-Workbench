@@ -1,13 +1,16 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
 
+from adaptive_ai_workbench.domain.models import ActionDefinition, CandidateActionPack
 from adaptive_ai_workbench.settings import Settings
 from adaptive_ai_workbench.ui.background_tasks import run_background
 from adaptive_ai_workbench.ui.controller import AppController
 from adaptive_ai_workbench.ui.state import AppState
 from adaptive_ai_workbench.ui.widgets import (
+    CandidateEditorWidgets,
+    build_candidate_editor,
     build_editor_panel,
     build_goal_panel,
     build_inspector,
@@ -25,19 +28,21 @@ class WorkbenchRoot(tk.Tk):
         self._syncing = False
 
         self.title(settings.app_name)
-        self.geometry("1200x760")
-        self.minsize(960, 640)
+        self.geometry("1280x980")
+        self.minsize(1040, 800)
 
         self._build_layout()
         self.controller.bootstrap()
         self._refresh_from_state()
 
     def _build_layout(self) -> None:
-        self.columnconfigure(0, weight=3)
+        self.columnconfigure(0, weight=4)
         self.columnconfigure(1, weight=1)
-        self.rowconfigure(1, weight=1)
-        self.rowconfigure(2, weight=1)
-        self.rowconfigure(3, weight=0)
+        self.rowconfigure(1, weight=0, minsize=180)
+        self.rowconfigure(2, weight=3)
+        self.rowconfigure(3, weight=2)
+        self.rowconfigure(4, weight=2)
+        self.rowconfigure(5, weight=0)
 
         toolbar = ttk.Frame(self)
         toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", padx=12, pady=(12, 6))
@@ -52,11 +57,11 @@ class WorkbenchRoot(tk.Tk):
         self.clear_button = ttk.Button(toolbar, text="Clear Output", command=self._on_clear_output)
         self.clear_button.pack(side="left", padx=(8, 0))
 
-        goal_frame, self.goal_text = build_goal_panel(self)
-        goal_frame.grid(row=1, column=0, sticky="nsew", padx=(12, 6), pady=(0, 6))
+        workflow_request_frame, self.workflow_request_text = build_goal_panel(self)
+        workflow_request_frame.grid(row=1, column=0, sticky="nsew", padx=(12, 6), pady=(0, 6))
 
         sidebar_frame, self.pack_list, self.action_list, self.preset_list = build_sidebar(self)
-        sidebar_frame.grid(row=1, column=1, rowspan=3, sticky="nsew", padx=(6, 12), pady=(0, 6))
+        sidebar_frame.grid(row=1, column=1, rowspan=4, sticky="nsew", padx=(6, 12), pady=(0, 6))
 
         editor_frame, self.input_text, self.output_text = build_editor_panel(self)
         editor_frame.grid(row=2, column=0, sticky="nsew", padx=(12, 6), pady=(0, 6))
@@ -64,12 +69,18 @@ class WorkbenchRoot(tk.Tk):
         inspector_frame, self.inspector_text = build_inspector(self)
         inspector_frame.grid(row=3, column=0, sticky="nsew", padx=(12, 6), pady=(0, 6))
 
+        candidate_editor_frame, self.candidate_editor = build_candidate_editor(self)
+        candidate_editor_frame.grid(row=4, column=0, sticky="nsew", padx=(12, 6), pady=(0, 6))
+
         status_frame, self.status_text = build_status_panel(self)
-        status_frame.grid(row=4, column=0, columnspan=2, sticky="nsew", padx=12, pady=(0, 12))
+        status_frame.grid(row=5, column=0, columnspan=2, sticky="nsew", padx=12, pady=(0, 12))
 
         self.pack_list.bind("<<ListboxSelect>>", self._on_pack_selected)
         self.action_list.bind("<<ListboxSelect>>", self._on_action_selected)
         self.preset_list.bind("<<ListboxSelect>>", self._on_preset_selected)
+        self.candidate_editor.action_list.bind("<<ListboxSelect>>", self._on_candidate_action_selected)
+        self.candidate_editor.apply_button.configure(command=self._on_apply_candidate_edits)
+        self.candidate_editor.remove_button.configure(command=self._on_remove_candidate_action)
 
     def _on_refresh(self) -> None:
         self.controller.handle_refresh_catalog()
@@ -77,7 +88,7 @@ class WorkbenchRoot(tk.Tk):
 
     def _on_generate_workflow(self) -> None:
         task = self.controller.begin_generate_workflow(
-            goal_text=self._read_text_widget(self.goal_text),
+            goal_text=self._read_text_widget(self.workflow_request_text),
         )
         self._refresh_from_state()
         if task is None:
@@ -104,7 +115,7 @@ class WorkbenchRoot(tk.Tk):
 
     def _on_run_action(self) -> None:
         task = self.controller.begin_run_action(
-            goal_text=self._read_text_widget(self.goal_text),
+            goal_text=self._read_text_widget(self.workflow_request_text),
             input_text=self._read_text_widget(self.input_text),
         )
         self._refresh_from_state()
@@ -141,7 +152,7 @@ class WorkbenchRoot(tk.Tk):
             return
         self.controller.handle_action_selected(
             self._get_listbox_selection(self.action_list),
-            goal_text=self._read_text_widget(self.goal_text),
+            goal_text=self._read_text_widget(self.workflow_request_text),
             input_text=self._read_text_widget(self.input_text),
         )
         self._refresh_from_state()
@@ -151,9 +162,35 @@ class WorkbenchRoot(tk.Tk):
             return
         self.controller.handle_preset_selected(
             self._get_listbox_selection(self.preset_list),
-            goal_text=self._read_text_widget(self.goal_text),
+            goal_text=self._read_text_widget(self.workflow_request_text),
             input_text=self._read_text_widget(self.input_text),
         )
+        self._refresh_from_state()
+
+    def _on_candidate_action_selected(self, _: tk.Event[tk.Listbox]) -> None:
+        if self._syncing:
+            return
+        self.controller.handle_candidate_action_selected(
+            self._get_listbox_selection(self.candidate_editor.action_list)
+        )
+        self._refresh_from_state()
+
+    def _on_apply_candidate_edits(self) -> None:
+        self.controller.handle_apply_candidate_edits(
+            title=self.candidate_editor.title_entry.get(),
+            summary=self._read_text_widget(self.candidate_editor.summary_text),
+            reasoning=self._read_text_widget(self.candidate_editor.reasoning_text),
+            recommended_preset_ids_text=self.candidate_editor.recommended_presets_entry.get(),
+            action_name=self.candidate_editor.action_name_entry.get(),
+            action_description=self._read_text_widget(self.candidate_editor.action_description_text),
+            action_rationale=self._read_text_widget(self.candidate_editor.action_rationale_text),
+            action_default_preset_id=self.candidate_editor.action_default_preset_entry.get(),
+            action_enabled=self.candidate_editor.action_enabled_var.get(),
+        )
+        self._refresh_from_state()
+
+    def _on_remove_candidate_action(self) -> None:
+        self.controller.handle_remove_candidate_action()
         self._refresh_from_state()
 
     def _refresh_from_state(self) -> None:
@@ -164,24 +201,99 @@ class WorkbenchRoot(tk.Tk):
             self._sync_listbox(self.pack_list, self.state.available_packs, self.state.selected_pack)
             self._sync_listbox(self.action_list, self.state.available_actions, self.state.selected_action)
             self._sync_listbox(self.preset_list, self.state.available_presets, self.state.selected_preset)
+            self._sync_candidate_editor()
             self._sync_readonly_widget(self.status_text, "\n".join(self.state.status_lines))
             self._sync_busy_state()
         finally:
             self._syncing = False
 
+    def _sync_candidate_editor(self) -> None:
+        candidate = self.state.candidate_pack
+        selected_action = self._get_selected_candidate_action(candidate)
+
+        self._sync_entry_widget(
+            self.candidate_editor.title_entry,
+            candidate.title if candidate else "",
+        )
+        self._sync_text_widget(
+            self.candidate_editor.summary_text,
+            candidate.summary if candidate else "",
+        )
+        self._sync_text_widget(
+            self.candidate_editor.reasoning_text,
+            candidate.reasoning if candidate else "",
+        )
+        self._sync_entry_widget(
+            self.candidate_editor.recommended_presets_entry,
+            ", ".join(candidate.recommended_preset_ids) if candidate else "",
+        )
+        self._sync_listbox(
+            self.candidate_editor.action_list,
+            self.state.available_candidate_actions,
+            self.state.selected_candidate_action,
+        )
+        self.candidate_editor.action_enabled_var.set(selected_action.enabled if selected_action else False)
+        self._sync_entry_widget(
+            self.candidate_editor.action_name_entry,
+            selected_action.name if selected_action else "",
+        )
+        self._sync_text_widget(
+            self.candidate_editor.action_description_text,
+            selected_action.description if selected_action else "",
+        )
+        self._sync_text_widget(
+            self.candidate_editor.action_rationale_text,
+            selected_action.rationale if selected_action else "",
+        )
+        self._sync_entry_widget(
+            self.candidate_editor.action_default_preset_entry,
+            selected_action.default_preset_id or "" if selected_action else "",
+        )
+
     def _sync_busy_state(self) -> None:
         busy = self.state.busy
+        candidate_active = self.state.candidate_pack is not None and not busy
+        candidate_action_active = candidate_active and self.state.selected_candidate_action is not None
+
         self.refresh_button.configure(state="disabled" if busy else "normal")
         self.generate_button.configure(state="disabled" if busy else "normal")
-        self.install_button.configure(state="disabled" if busy else "normal")
+        self.install_button.configure(state="disabled" if busy or self.state.candidate_pack is None else "normal")
         self.run_button.configure(state="disabled" if busy else "normal")
         self.pack_list.configure(state="disabled" if busy else "normal")
         self.action_list.configure(state="disabled" if busy else "normal")
         self.preset_list.configure(state="disabled" if busy else "normal")
+
+        self.candidate_editor.title_entry.configure(state="normal" if candidate_active else "disabled")
+        self.candidate_editor.recommended_presets_entry.configure(state="normal" if candidate_active else "disabled")
+        self.candidate_editor.action_list.configure(state="normal" if candidate_active else "disabled")
+        self.candidate_editor.action_enabled_check.configure(state="normal" if candidate_action_active else "disabled")
+        self.candidate_editor.action_name_entry.configure(state="normal" if candidate_action_active else "disabled")
+        self.candidate_editor.action_default_preset_entry.configure(state="normal" if candidate_action_active else "disabled")
+        self.candidate_editor.apply_button.configure(state="normal" if candidate_action_active else "disabled")
+        self.candidate_editor.remove_button.configure(state="normal" if candidate_action_active else "disabled")
+        self._set_text_widget_state(self.candidate_editor.summary_text, candidate_active)
+        self._set_text_widget_state(self.candidate_editor.reasoning_text, candidate_active)
+        self._set_text_widget_state(self.candidate_editor.action_description_text, candidate_action_active)
+        self._set_text_widget_state(self.candidate_editor.action_rationale_text, candidate_action_active)
+
         self.title(f"{self.settings.app_name} {'(Working...)' if busy else ''}".rstrip())
+
+    def _get_selected_candidate_action(self, candidate: CandidateActionPack | None) -> ActionDefinition | None:
+        if candidate is None or self.state.selected_candidate_action is None:
+            return None
+        for action in candidate.actions:
+            if action.action_id == self.state.selected_candidate_action:
+                return action
+        return None
 
     @staticmethod
     def _sync_output_widget(widget: tk.Text, content: str) -> None:
+        widget.delete("1.0", "end")
+        widget.insert("1.0", content)
+
+    @staticmethod
+    def _sync_text_widget(widget: tk.Text, content: str) -> None:
+        widget.configure(state="normal")
         widget.delete("1.0", "end")
         widget.insert("1.0", content)
 
@@ -193,8 +305,19 @@ class WorkbenchRoot(tk.Tk):
         widget.configure(state="disabled")
 
     @staticmethod
+    def _set_text_widget_state(widget: tk.Text, enabled: bool) -> None:
+        widget.configure(state="normal" if enabled else "disabled")
+
+    @staticmethod
+    def _sync_entry_widget(widget: ttk.Entry, content: str) -> None:
+        widget.configure(state="normal")
+        widget.delete(0, "end")
+        widget.insert(0, content)
+
+    @staticmethod
     def _sync_listbox(widget: tk.Listbox, items: list[str], selected_item: str | None) -> None:
         widget.delete(0, "end")
+        widget.selection_clear(0, "end")
         selected_index = None
         for index, item in enumerate(items):
             widget.insert("end", item)
@@ -203,6 +326,7 @@ class WorkbenchRoot(tk.Tk):
         if selected_index is not None:
             widget.selection_set(selected_index)
             widget.activate(selected_index)
+            widget.see(selected_index)
 
     @staticmethod
     def _read_text_widget(widget: tk.Text) -> str:

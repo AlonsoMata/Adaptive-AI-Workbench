@@ -1,8 +1,76 @@
-You are generating a CandidateActionPack schema version 1.0.
-Return one JSON object only.
-Use only approved action kinds.
-Do not generate code, shell commands, Python, plugins, tools, or arbitrary execution.
-Use Python str.format placeholders only.
-If placeholders are needed, use names such as {goal_text}, {input_text}, {tone}, {language}, {output_style}, {length}, and {instruction_text}.
-Make the workflow practical, reusable, and easy to inspect.
-Include a clear reasoning field, action-level rationale fields, and recommended_preset_ids that reference only existing presets.
+You are generating a CandidateActionPack schema version 1.0 for Adaptive AI Workbench.
+Return JSON only.
+Do not return markdown, comments, prose, or any text outside the single JSON object.
+
+You must return a complete CandidateActionPack object only.
+Do not return partial, conceptual, draft, or placeholder action objects.
+Every item in actions must be a complete ActionDefinition object that is immediately usable by the current dispatcher/runtime.
+
+Required top-level keys:
+- schema_version
+- pack_id
+- goal
+- title
+- summary
+- reasoning
+- warnings
+- recommended_preset_ids
+- actions
+
+Required keys for every action object:
+- action_id
+- name
+- description
+- kind
+- enabled
+- rationale
+- input_mode
+- fields
+- system_prompt
+- user_prompt_template
+- default_preset_id
+- tags
+
+Rules:
+- Use only approved action kinds from the runtime.
+- Use only Python str.format placeholders.
+- Allowed placeholders only: {goal_text}, {input_text}, {tone}, {language}, {output_style}, {length}, {instruction_text}.
+- Do not generate shell commands, Python code, plugins, tools, self-modifying steps, or arbitrary execution.
+- default_preset_id must be null or a valid built-in preset id.
+- recommended_preset_ids must reference only valid built-in preset ids.
+- fields must always be present. Use [] when no structured fields are needed.
+- tags must always be present. Use [] when no tags are needed.
+- warnings must always be present. Use [] when there are no warnings.
+- Complete ActionDefinition objects only. Never omit action_id, name, system_prompt, or user_prompt_template.
+- Prefer actions that solve the user's task directly.
+- Do not make the pack primarily about planning, framing, or designing a workflow unless the user explicitly asks for planning.
+- For investigation, research, exploration, or discovery goals, prefer direct actions that investigate a topic, summarize findings, extract key insights, suggest related concepts, and recommend useful sources.
+- Avoid meta actions such as frame_topic_investigation, create_research_brief, or plan_research_workflow unless the user explicitly asks to plan research.
+
+Example of a valid CandidateActionPack JSON object:
+{
+  "schema_version": "1.0",
+  "pack_id": "client_email_workflow",
+  "goal": "Help me draft, rewrite, and reply to professional emails.",
+  "title": "Client Email Workflow",
+  "summary": "Validated workflow for drafting, rewriting, and replying to professional email content.",
+  "reasoning": "The goal is centered on professional email work, so the workflow focuses on drafting, rewriting, and reply generation.",
+  "warnings": [],
+  "recommended_preset_ids": ["professional_email"],
+  "actions": [
+    {
+      "action_id": "draft_email",
+      "name": "Draft Email",
+      "description": "Create a professional email draft from notes or rough content.",
+      "kind": "template_fill",
+      "enabled": true,
+      "rationale": "Drafting is a primary task for this goal, so the pack needs a draft-first action.",
+      "input_mode": "single_text",
+      "fields": [],
+      "system_prompt": "You are an expert email assistant. Write with tone={tone}, language={language}, style={output_style}, length={length}.",
+      "user_prompt_template": "Goal: {goal_text}\nInstruction: {instruction_text}\nSource content:\n{input_text}",
+      "default_preset_id": "professional_email",
+      "tags": ["email", "drafting"]
+    }
+  ]
+}

@@ -95,6 +95,27 @@ def scratch_data_dir() -> Path:
             scratch_root.rmdir()
 
 
+def build_controller(outputs: list[str], configured: bool = True) -> tuple[WorkbenchService, AppState, AppController]:
+    data_dir_context = scratch_data_dir()
+    data_dir = data_dir_context.__enter__()
+    gateway = QueueGateway(outputs=outputs, configured=configured)
+    settings = Settings(
+        data_dir=data_dir,
+        templates_dir=templates_dir(),
+        openai_api_key="unused-by-stub" if configured else None,
+        openai_model="gpt-test-model" if configured else None,
+    )
+    service = WorkbenchService(settings, gateway=gateway)
+    state = AppState()
+    controller = AppController(service=service, state=state)
+    controller._test_context = data_dir_context  # type: ignore[attr-defined]
+    return service, state, controller
+
+
+def cleanup_controller(controller: AppController) -> None:
+    controller._test_context.__exit__(None, None, None)  # type: ignore[attr-defined]
+
+
 def test_service_preview_builtin_action_uses_goal_input_and_selected_preset() -> None:
     with scratch_data_dir() as data_dir:
         settings = Settings(
@@ -243,7 +264,7 @@ def test_service_executes_installed_generated_pack_through_existing_runtime() ->
 
 def test_controller_generation_failure_surfaces_invalid_payload() -> None:
     with scratch_data_dir() as data_dir:
-        gateway = QueueGateway(outputs=["Not valid JSON"]) 
+        gateway = QueueGateway(outputs=["Not valid JSON"])
         settings = Settings(
             data_dir=data_dir,
             templates_dir=templates_dir(),
@@ -289,3 +310,207 @@ def test_controller_run_action_uses_live_gateway_output() -> None:
         assert "Live Execution Result" in state.output_text
         assert "Live model response for built-in workflow execution." in state.output_text
         assert "gpt-test-model" in state.output_text
+
+
+def test_controller_can_edit_candidate_metadata() -> None:
+    service, state, controller = build_controller([json.dumps(build_candidate_payload())])
+    try:
+        controller.bootstrap()
+        controller.handle_generate_workflow("Help me summarize meeting notes and extract action items")
+
+        controller.handle_apply_candidate_edits(
+            title="Edited Meeting Workflow",
+            summary="Shorter edited summary.",
+            reasoning="Edited reasoning for the review pass.",
+            recommended_preset_ids_text="professional_email, strict_code_review",
+            action_name="Summarize Notes",
+            action_description="Summarize raw meeting notes into a clear digest.",
+            action_rationale="Meeting notes usually need an overview before deeper extraction.",
+            action_default_preset_id="professional_email",
+            action_enabled=True,
+        )
+
+        assert state.candidate_pack is not None
+        assert state.candidate_pack.title == "Edited Meeting Workflow"
+        assert state.candidate_pack.summary == "Shorter edited summary."
+        assert state.candidate_pack.reasoning == "Edited reasoning for the review pass."
+        assert state.candidate_pack.recommended_preset_ids == ["professional_email", "strict_code_review"]
+    finally:
+        cleanup_controller(controller)
+
+
+def test_controller_can_remove_candidate_action() -> None:
+    service, state, controller = build_controller([json.dumps(build_candidate_payload())])
+    try:
+        controller.bootstrap()
+        controller.handle_generate_workflow("Help me summarize meeting notes and extract action items")
+        controller.handle_candidate_action_selected("extract_actions")
+        controller.handle_remove_candidate_action()
+
+        assert state.candidate_pack is not None
+        assert [action.action_id for action in state.candidate_pack.actions] == ["summarize_notes"]
+        assert state.selected_candidate_action == "summarize_notes"
+    finally:
+        cleanup_controller(controller)
+
+
+def test_controller_can_change_candidate_action_default_preset() -> None:
+    service, state, controller = build_controller([json.dumps(build_candidate_payload())])
+    try:
+        controller.bootstrap()
+        controller.handle_generate_workflow("Help me summarize meeting notes and extract action items")
+        controller.handle_candidate_action_selected("extract_actions")
+        controller.handle_apply_candidate_edits(
+            title=state.candidate_pack.title,
+            summary=state.candidate_pack.summary,
+            reasoning=state.candidate_pack.reasoning,
+            recommended_preset_ids_text="professional_email",
+            action_name="Extract Action Items",
+            action_description="Extract owners, due dates, and next steps from meeting notes.",
+            action_rationale="Action extraction is a direct requirement in the goal.",
+            action_default_preset_id="strict_code_review",
+            action_enabled=True,
+        )
+
+        assert state.candidate_pack is not None
+        edited_action = next(action for action in state.candidate_pack.actions if action.action_id == "extract_actions")
+        assert edited_action.default_preset_id == "strict_code_review"
+    finally:
+        cleanup_controller(controller)
+
+
+def test_controller_installs_edited_candidate_successfully() -> None:
+    service, state, controller = build_controller([json.dumps(build_candidate_payload())])
+    try:
+        controller.bootstrap()
+        controller.handle_generate_workflow("Help me summarize meeting notes and extract action items")
+        controller.handle_apply_candidate_edits(
+            title="Edited Meeting Workflow",
+            summary="Install the edited candidate.",
+            reasoning=state.candidate_pack.reasoning,
+            recommended_preset_ids_text="professional_email",
+            action_name="Summarize Notes",
+            action_description="Installable edited summary action.",
+            action_rationale="Still needed before extraction.",
+            action_default_preset_id="professional_email",
+            action_enabled=False,
+        )
+        controller.handle_install_candidate()
+
+        installed = service.get_catalog_pack("generated_meeting_helper")
+        assert state.candidate_pack is None
+        assert state.available_candidate_actions == []
+        assert state.selected_candidate_action is None
+        assert installed.name == "Edited Meeting Workflow"
+        assert installed.description == "Install the edited candidate."
+        assert installed.actions[0].enabled is False
+        assert installed.actions[0].description == "Installable edited summary action."
+    finally:
+        cleanup_controller(controller)
+
+
+def test_controller_rejects_invalid_candidate_edit() -> None:
+    service, state, controller = build_controller([json.dumps(build_candidate_payload())])
+    try:
+        controller.bootstrap()
+        controller.handle_generate_workflow("Help me summarize meeting notes and extract action items")
+        original_title = state.candidate_pack.title
+        controller.handle_apply_candidate_edits(
+            title="Broken Candidate",
+            summary=state.candidate_pack.summary,
+            reasoning=state.candidate_pack.reasoning,
+            recommended_preset_ids_text="professional_email",
+            action_name="Summarize Notes",
+            action_description="Summarize raw meeting notes into a clear digest.",
+            action_rationale="Meeting notes usually need an overview before deeper extraction.",
+            action_default_preset_id="unknown_preset",
+            action_enabled=True,
+        )
+
+        assert state.candidate_pack is not None
+        assert state.candidate_pack.title == original_title
+        assert "Candidate Edit Rejected" in state.inspector_text
+    finally:
+        cleanup_controller(controller)
+def test_controller_generation_failure_surfaces_missing_required_action_fields() -> None:
+    incomplete_payload = build_candidate_payload()
+    incomplete_payload["actions"] = [
+        {
+            "description": "Incomplete action object.",
+            "kind": "template_fill",
+            "enabled": True,
+            "rationale": "This should fail validation.",
+            "input_mode": "single_text",
+            "fields": [],
+            "default_preset_id": "professional_email",
+            "tags": [],
+        }
+    ]
+
+    with scratch_data_dir() as data_dir:
+        gateway = QueueGateway(outputs=[json.dumps(incomplete_payload)])
+        settings = Settings(
+            data_dir=data_dir,
+            templates_dir=templates_dir(),
+            openai_api_key="unused-by-stub",
+            openai_model="gpt-test-model",
+        )
+        service = WorkbenchService(settings, gateway=gateway)
+        controller = AppController(service=service, state=AppState())
+
+        controller.bootstrap()
+        controller.handle_generate_workflow("Create a workflow pack for personalized diet plans")
+
+        assert "Generated workflow is missing required action fields." in controller.state.inspector_text
+        assert "action_id" in controller.state.inspector_text
+        assert controller.state.candidate_pack is None
+
+def test_candidate_action_list_populates_after_generation() -> None:
+    service, state, controller = build_controller([json.dumps(build_candidate_payload())])
+    try:
+        controller.bootstrap()
+        controller.handle_generate_workflow("Help me summarize meeting notes and extract action items")
+
+        assert state.available_candidate_actions == ["summarize_notes", "extract_actions"]
+    finally:
+        cleanup_controller(controller)
+
+
+def test_first_candidate_action_is_auto_selected_after_generation() -> None:
+    service, state, controller = build_controller([json.dumps(build_candidate_payload())])
+    try:
+        controller.bootstrap()
+        controller.handle_generate_workflow("Help me summarize meeting notes and extract action items")
+
+        assert state.selected_candidate_action == "summarize_notes"
+    finally:
+        cleanup_controller(controller)
+
+
+def test_candidate_action_selection_syncs_editor_state() -> None:
+    service, state, controller = build_controller([json.dumps(build_candidate_payload())])
+    try:
+        controller.bootstrap()
+        controller.handle_generate_workflow("Help me summarize meeting notes and extract action items")
+        controller.handle_candidate_action_selected("extract_actions")
+
+        assert state.selected_candidate_action == "extract_actions"
+        assert "Candidate Workflow Action" in state.inspector_text
+        assert "Action Name: Extract Action Items" in state.inspector_text
+    finally:
+        cleanup_controller(controller)
+
+
+def test_candidate_action_removal_updates_list_and_selection() -> None:
+    service, state, controller = build_controller([json.dumps(build_candidate_payload())])
+    try:
+        controller.bootstrap()
+        controller.handle_generate_workflow("Help me summarize meeting notes and extract action items")
+        controller.handle_candidate_action_selected("extract_actions")
+        controller.handle_remove_candidate_action()
+
+        assert state.available_candidate_actions == ["summarize_notes"]
+        assert state.selected_candidate_action == "summarize_notes"
+        assert "Action Name: Summarize Notes" in state.inspector_text
+    finally:
+        cleanup_controller(controller)

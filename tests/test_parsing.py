@@ -50,3 +50,29 @@ def test_parse_json_wrapped_in_text() -> None:
 def test_parse_raises_when_json_is_missing() -> None:
     with pytest.raises(ModelOutputError):
         parse_candidate_action_pack("No structured payload here.")
+
+
+def test_parse_surfaces_clear_message_for_missing_required_action_fields() -> None:
+    invalid_payload = build_payload()
+    invalid_payload["actions"] = [
+        {
+            "description": "Incomplete action object.",
+            "kind": "template_fill",
+            "enabled": True,
+            "rationale": "This should fail validation.",
+            "input_mode": "single_text",
+            "fields": [],
+            "default_preset_id": "professional_email",
+            "tags": [],
+        }
+    ]
+
+    with pytest.raises(ModelOutputError) as error:
+        parse_candidate_action_pack(json.dumps(invalid_payload))
+
+    message = str(error.value)
+    assert "Generated workflow is missing required action fields." in message
+    assert "action_id" in message
+    assert "name" in message
+    assert "system_prompt" in message
+    assert "user_prompt_template" in message
