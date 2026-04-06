@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 
@@ -65,7 +65,8 @@ def build_candidate_generation_prompt(
     user_prompt = (
         f"User goal:\n{goal_text}\n\n"
         "Return one CandidateActionPack JSON object only.\n"
-        "Return JSON only. Do not include prose before or after the JSON object.\n\n"
+        "Return JSON only. Do not include prose before or after the JSON object.\n"
+        "Do not use markdown fences. Do not restate the rules, placeholders, or schema in the response.\n\n"
         "Required top-level keys:\n"
         "- schema_version\n"
         "- pack_id\n"

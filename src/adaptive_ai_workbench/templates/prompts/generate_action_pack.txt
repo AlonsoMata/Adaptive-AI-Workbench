@@ -1,6 +1,8 @@
-You are generating a CandidateActionPack schema version 1.0 for Adaptive AI Workbench.
+﻿You are generating a CandidateActionPack schema version 1.0 for Adaptive AI Workbench.
 Return JSON only.
 Do not return markdown, comments, prose, or any text outside the single JSON object.
+Do not wrap the JSON in ```json fences.
+Do not restate the rules, allowed placeholders, or schema before the JSON object.
 
 You must return a complete CandidateActionPack object only.
 Do not return partial, conceptual, draft, or placeholder action objects.

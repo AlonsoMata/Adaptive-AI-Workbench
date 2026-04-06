@@ -514,3 +514,25 @@ def test_candidate_action_removal_updates_list_and_selection() -> None:
         assert "Action Name: Summarize Notes" in state.inspector_text
     finally:
         cleanup_controller(controller)
+
+def test_controller_generation_failure_includes_model_output_snippet() -> None:
+    raw_output = "I will explain first. Use placeholders like {goal_text}. Then JSON later maybe."
+
+    with scratch_data_dir() as data_dir:
+        gateway = QueueGateway(outputs=[raw_output])
+        settings = Settings(
+            data_dir=data_dir,
+            templates_dir=templates_dir(),
+            openai_api_key="unused-by-stub",
+            openai_model="gpt-test-model",
+        )
+        service = WorkbenchService(settings, gateway=gateway)
+        controller = AppController(service=service, state=AppState())
+
+        controller.bootstrap()
+        controller.handle_generate_workflow("Help me create the best competitive pokemon team")
+
+        assert "Workflow Generation Failed" in controller.state.inspector_text
+        assert "Model output snippet:" in controller.state.inspector_text
+        assert "Use placeholders like {goal_text}" in controller.state.inspector_text
+        assert controller.state.candidate_pack is None

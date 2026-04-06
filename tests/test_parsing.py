@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 import pytest
 
@@ -47,9 +47,65 @@ def test_parse_json_wrapped_in_text() -> None:
     assert candidate.actions[0].action_id == "draft_email"
 
 
+def test_parse_json_wrapped_in_markdown_fences() -> None:
+    wrapped = f"```json\n{json.dumps(build_payload(), indent=2)}\n```"
+    candidate = parse_candidate_action_pack(wrapped)
+    assert candidate.title == "Client Email Workflow"
+
+
+def test_parse_json_ignores_prose_with_placeholders_before_payload() -> None:
+    wrapped = (
+        "Use placeholders like {goal_text} and {input_text}. "
+        "Now returning the requested payload.\n"
+        f"```json\n{json.dumps(build_payload())}\n```"
+    )
+    candidate = parse_candidate_action_pack(wrapped)
+    assert candidate.actions[0].action_id == "draft_email"
+
+
+def test_parse_prefers_full_candidate_object_over_earlier_partial_object() -> None:
+    raw_output = (
+        '{"schema_version": "1.0"}\n'
+        f'{json.dumps(build_payload())}'
+    )
+
+    candidate = parse_candidate_action_pack(raw_output)
+
+    assert candidate.pack_id == "client_email_workflow"
+    assert candidate.title == "Client Email Workflow"
+
+
 def test_parse_raises_when_json_is_missing() -> None:
     with pytest.raises(ModelOutputError):
         parse_candidate_action_pack("No structured payload here.")
+
+
+def test_parse_raises_clear_message_for_unbalanced_json_with_output_snippet() -> None:
+    raw_output = (
+        "I will return JSON next. Use placeholders like {goal_text}. "
+        '{"schema_version": "1.0", "pack_id": "broken"'
+    )
+
+    with pytest.raises(ModelOutputError) as error:
+        parse_candidate_action_pack(raw_output)
+
+    message = str(error.value)
+    assert "Could not find a valid JSON object in model output." in message or "Could not extract a balanced JSON object from model output." in message
+    assert "Model output snippet:" in message
+    assert "Use placeholders like {goal_text}" in message
+
+
+def test_parse_surfaces_clear_message_for_missing_required_top_level_fields() -> None:
+    raw_output = '{"schema_version": "1.0"}'
+
+    with pytest.raises(ModelOutputError) as error:
+        parse_candidate_action_pack(raw_output)
+
+    message = str(error.value)
+    assert "Generated workflow is missing required top-level fields." in message
+    assert "pack_id" in message
+    assert "actions" in message
+    assert "Model output snippet:" in message
 
 
 def test_parse_surfaces_clear_message_for_missing_required_action_fields() -> None:
@@ -76,3 +132,4 @@ def test_parse_surfaces_clear_message_for_missing_required_action_fields() -> No
     assert "name" in message
     assert "system_prompt" in message
     assert "user_prompt_template" in message
+    assert "Model output snippet:" in message

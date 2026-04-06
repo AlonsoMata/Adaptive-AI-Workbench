@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from adaptive_ai_workbench.model.prompt_loader import load_prompt
 from adaptive_ai_workbench.planning.workflow_generator import build_candidate_generation_prompt
@@ -69,3 +69,19 @@ def test_generation_prompt_template_discourages_meta_research_packs() -> None:
     assert "Prefer actions that solve the user's task directly." in system_prompt
     assert "For investigation, research, exploration, or discovery goals, prefer direct actions" in system_prompt
     assert "Avoid meta actions such as frame_topic_investigation, create_research_brief, or plan_research_workflow" in system_prompt
+
+
+def test_generation_prompt_forbids_markdown_fences_and_rule_restatement() -> None:
+    presets = PresetStore(templates_dir()).list_builtin()
+    prompt = build_candidate_generation_prompt(
+        goal_text="Help me create the best competitive pokemon team",
+        system_prompt="system prompt placeholder",
+        presets=presets,
+    )
+
+    assert "Do not use markdown fences." in prompt.user_prompt
+    assert "Do not restate the rules, placeholders, or schema in the response." in prompt.user_prompt
+
+    system_prompt = load_prompt("generate_action_pack", templates_dir())
+    assert "Do not wrap the JSON in ```json fences." in system_prompt
+    assert "Do not restate the rules, allowed placeholders, or schema before the JSON object." in system_prompt
