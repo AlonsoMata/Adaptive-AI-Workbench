@@ -4,6 +4,9 @@ import json
 import shutil
 from uuid import uuid4
 
+import pytest
+
+from adaptive_ai_workbench.domain.errors import ValidationFailure
 from adaptive_ai_workbench.model.gateway import ModelGateway, TextGenerationRequest, TextGenerationResult
 from adaptive_ai_workbench.services.workbench_service import WorkbenchService
 from adaptive_ai_workbench.settings import Settings
@@ -74,6 +77,49 @@ def build_candidate_payload() -> dict[str, object]:
                 "default_preset_id": "analytical_review",
                 "tags": ["meeting", "actions"],
             }
+        ],
+    }
+
+
+def build_meta_candidate_payload() -> dict[str, object]:
+    return {
+        "schema_version": "1.0",
+        "pack_id": "meeting_workflow_planner",
+        "goal": "Help me summarize meeting notes and extract action items",
+        "title": "Meeting Workflow Planner",
+        "summary": "Workflow for planning how to handle meeting notes before doing the actual work.",
+        "reasoning": "The pack focuses on planning the workflow before generating outputs.",
+        "warnings": [],
+        "recommended_preset_ids": ["concise_structured"],
+        "actions": [
+            {
+                "action_id": "plan_meeting_workflow",
+                "name": "Plan Meeting Workflow",
+                "description": "Plan how the meeting notes should be processed before producing any output.",
+                "kind": "prompt_transform",
+                "enabled": True,
+                "rationale": "Planning the workflow comes first.",
+                "input_mode": "single_text",
+                "fields": [],
+                "system_prompt": "You plan workflows with tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}.",
+                "user_prompt_template": "Goal: {goal_text}\nMeeting notes:\n{input_text}",
+                "default_preset_id": "concise_structured",
+                "tags": ["planning", "workflow"],
+            },
+            {
+                "action_id": "outline_meeting_strategy",
+                "name": "Outline Meeting Strategy",
+                "description": "Create a strategy outline for how the meeting request should be approached.",
+                "kind": "prompt_transform",
+                "enabled": True,
+                "rationale": "A strategy outline should be produced before solving the task.",
+                "input_mode": "single_text",
+                "fields": [],
+                "system_prompt": "You outline strategies with tone={tone}, language={language}, style={output_style}, length={length}, format={format}, and strictness={strictness}.",
+                "user_prompt_template": "Goal: {goal_text}\nMeeting notes:\n{input_text}",
+                "default_preset_id": "concise_structured",
+                "tags": ["strategy", "planning"],
+            },
         ],
     }
 
@@ -202,6 +248,43 @@ def test_service_generate_candidate_workflow_builds_request_from_goal_and_profil
         assert "professional_clear" in generation_request.input_text
         assert "analytical_review" in generation_request.input_text
         assert generation_request.max_output_tokens == 2200
+
+
+def test_service_retries_generation_once_when_candidate_fails_quality_gate() -> None:
+    with scratch_data_dir() as data_dir:
+        gateway = QueueGateway(outputs=[json.dumps(build_meta_candidate_payload()), json.dumps(build_candidate_payload())])
+        settings = Settings(
+            data_dir=data_dir,
+            templates_dir=templates_dir(),
+            openai_api_key="unused-by-stub",
+            openai_model="gpt-test-model",
+        )
+        service = WorkbenchService(settings, gateway=gateway)
+
+        candidate = service.generate_candidate_workflow("Help me summarize meeting notes and extract action items")
+
+        assert candidate.pack_id == "generated_meeting_helper"
+        assert len(gateway.requests) == 2
+        assert "Quality retry requirements:" in gateway.requests[1].input_text
+        assert "overly meta or planning-heavy" in gateway.requests[1].input_text
+
+
+def test_service_rejects_candidate_after_quality_retry_is_exhausted() -> None:
+    with scratch_data_dir() as data_dir:
+        gateway = QueueGateway(outputs=[json.dumps(build_meta_candidate_payload()), json.dumps(build_meta_candidate_payload())])
+        settings = Settings(
+            data_dir=data_dir,
+            templates_dir=templates_dir(),
+            openai_api_key="unused-by-stub",
+            openai_model="gpt-test-model",
+        )
+        service = WorkbenchService(settings, gateway=gateway)
+
+        with pytest.raises(ValidationFailure) as error:
+            service.generate_candidate_workflow("Help me summarize meeting notes and extract action items")
+
+        assert "quality gating after one regeneration attempt" in str(error.value)
+        assert len(gateway.requests) == 2
 
 
 def test_service_supports_legacy_profile_aliases() -> None:

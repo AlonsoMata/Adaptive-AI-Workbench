@@ -50,6 +50,7 @@ def build_candidate_generation_prompt(
     goal_text: str,
     system_prompt: str,
     presets: list[PresetDefinition],
+    quality_feedback: list[str] | None = None,
 ) -> WorkflowGenerationPrompt:
     approved_kinds = "\n".join(f"- {kind.value}" for kind in ActionKind)
     required_action_fields = "\n".join(f"- {field_name}" for field_name in REQUIRED_ACTION_FIELDS)
@@ -112,4 +113,13 @@ def build_candidate_generation_prompt(
         f"Approved action kinds:\n{approved_kinds}\n\n"
         f"Available built-in response profiles:\n{profile_lines}\n"
     )
+    if quality_feedback:
+        feedback_lines = "\n".join(f"- {feedback}" for feedback in quality_feedback)
+        user_prompt += (
+            "\nQuality retry requirements:\n"
+            "The previous candidate pack failed quality review.\n"
+            "Return a fresh replacement pack that fixes all of these problems:\n"
+            f"{feedback_lines}\n"
+            "Do not keep the same weak action set with minor renaming.\n"
+        )
     return WorkflowGenerationPrompt(system_prompt=system_prompt, user_prompt=user_prompt)

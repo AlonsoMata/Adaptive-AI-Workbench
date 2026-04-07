@@ -19,12 +19,13 @@ from adaptive_ai_workbench.persistence.preset_store import PresetStore
 from adaptive_ai_workbench.planning.goal_analyzer import normalize_goal_text
 from adaptive_ai_workbench.planning.workflow_generator import build_candidate_generation_prompt
 from adaptive_ai_workbench.safety.parsing import parse_candidate_action_pack
-from adaptive_ai_workbench.safety.validators import validate_candidate_pack
+from adaptive_ai_workbench.safety.validators import find_generated_candidate_quality_issues, validate_candidate_pack
 from adaptive_ai_workbench.settings import Settings
 
 
 class WorkbenchService:
     WORKFLOW_GENERATION_MAX_OUTPUT_TOKENS = 2200
+    WORKFLOW_GENERATION_MAX_QUALITY_RETRIES = 1
 
     def __init__(self, settings: Settings, gateway: ModelGateway | None = None) -> None:
         self.settings = settings
@@ -156,19 +157,37 @@ class WorkbenchService:
             raise ConfigurationError(
                 "Workflow generation is unavailable because OPENAI_API_KEY or AI_WORKBENCH_MODEL is not configured."
             )
+        system_prompt = load_prompt("generate_action_pack", self.settings.templates_dir)
+        presets = self.list_response_profiles_detailed()
+        quality_feedback: list[str] | None = None
 
-        generation_prompt = build_candidate_generation_prompt(
-            goal_text=normalized_goal,
-            system_prompt=load_prompt("generate_action_pack", self.settings.templates_dir),
-            presets=self.list_response_profiles_detailed(),
-        )
-        result = self.gateway.generate_text(
-            system_prompt=generation_prompt.system_prompt,
-            user_prompt=generation_prompt.user_prompt,
-            max_output_tokens=self.WORKFLOW_GENERATION_MAX_OUTPUT_TOKENS,
-        )
-        candidate = parse_candidate_action_pack(result.output_text)
-        return self.validate_candidate_workflow(candidate)
+        for attempt in range(self.WORKFLOW_GENERATION_MAX_QUALITY_RETRIES + 1):
+            generation_prompt = build_candidate_generation_prompt(
+                goal_text=normalized_goal,
+                system_prompt=system_prompt,
+                presets=presets,
+                quality_feedback=quality_feedback,
+            )
+            result = self.gateway.generate_text(
+                system_prompt=generation_prompt.system_prompt,
+                user_prompt=generation_prompt.user_prompt,
+                max_output_tokens=self.WORKFLOW_GENERATION_MAX_OUTPUT_TOKENS,
+            )
+            candidate = parse_candidate_action_pack(result.output_text)
+            validated_candidate = self.validate_candidate_workflow(candidate)
+            quality_issues = find_generated_candidate_quality_issues(validated_candidate, normalized_goal)
+            if not quality_issues:
+                return validated_candidate
+            if attempt < self.WORKFLOW_GENERATION_MAX_QUALITY_RETRIES:
+                quality_feedback = quality_issues
+                continue
+            issue_summary = " ".join(quality_issues)
+            raise ValidationFailure(
+                "Generated workflow failed quality gating after one regeneration attempt. "
+                f"{issue_summary}"
+            )
+
+        raise ValidationFailure("Generated workflow failed quality gating.")
 
     def validate_candidate_workflow(self, candidate: CandidateActionPack) -> CandidateActionPack:
         validated_candidate = validate_candidate_pack(candidate)

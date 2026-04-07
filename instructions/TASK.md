@@ -1,24 +1,24 @@
 # TASK.md
 
 ## Current Objective
-Improve candidate workflow generation reliability and usefulness without breaking candidate generation, candidate review/edit/install flow, installed action execution, or current UI usability.
+Add a small, maintainable quality-gating layer for generated candidate workflow packs so structurally valid but obviously low-value packs are rejected or retried once before they enter normal candidate state.
 
 ## Current Branch
-feature/workflow-generation-hardening
+feature/generation-quality-gating
 
 ## What this milestone should achieve
-- Make generated candidate packs more consistently complete, useful, and installable
-- Harden prompt construction, output handling, and failure reporting in the generation path
-- Preserve the current workflow generation/review/install/execute flow end-to-end
-- Preserve current product stability without broad redesign
+- Define explicit, narrow quality criteria for generated candidate packs beyond schema validity
+- Detect low-value but schema-valid packs before they are accepted into normal candidate review state
+- Prefer at most one focused regeneration with stricter guidance when a pack fails semantic quality
+- Preserve the current workflow generation/review/install/execute flow end-to-end without broad redesign
 
 ## In Scope
 This milestone DOES include:
 - targeted changes in the candidate generation pipeline
-- prompt/template adjustments that improve candidate pack quality
-- parsing/repair/validation hardening where a confirmed root cause requires it
-- service-level failure handling or diagnostics for generation
-- updating tests affected by the hardening work
+- a small explicit semantic quality gate for candidate packs
+- prompt/template adjustments only if needed to support a focused retry
+- service-level failure handling or diagnostics for rejected low-value candidates
+- updating tests affected by the quality-gating work
 
 ## Out of Scope
 This milestone does NOT include:
@@ -28,12 +28,13 @@ This milestone does NOT include:
 - adding external tools/web search integrations
 - broad UI/layout redesign
 - installed action execution redesign unless required by a confirmed generation-path issue
+- weakening strict schema validation
 
 ## Important Constraints
 - Do not break candidate generation
 - Do not break candidate review/edit/install flow
 - Do not break installed action execution
-- Do not weaken schema validation casually
+- Do not weaken schema validation
 - Keep the implementation incremental, focused, and verifiable
 - Respect the architectural separation in `ARCHITECTURE.md`
 - Respect the settled decisions in `DECISIONS.md`
@@ -41,12 +42,9 @@ This milestone does NOT include:
 ## Likely Affected Files
 - `services/workbench_service.py`
 - `planning/workflow_generator.py`
-- `planning/goal_analyzer.py` if truly needed
 - `templates/prompts/generate_action_pack.txt`
-- `safety/parsing.py`
-- `safety/repair.py` if truly needed
 - `safety/validators.py` if truly needed
-- `model/gateway.py` if output handling needs a small targeted fix
+- a new small helper module only if clearly justified
 - relevant tests
 
 ## Risks to Avoid
@@ -54,26 +52,25 @@ This milestone does NOT include:
 - mixing this milestone with unrelated UI/layout work
 - broad refactors that obscure the root cause
 - touching installed execution without a confirmed need
-- leaving generation failures unclear or hard to debug
+- leaving low-value generation failures unclear or hard to debug
 
 ## Success Criteria
 - [ ] Candidate generation still works end-to-end
-- [ ] Generated candidate packs are more consistently useful and installable
-- [ ] Parsing/validation failures are handled more robustly
+- [ ] Structurally valid but obviously low-value packs are no longer silently accepted
 - [ ] Candidate generation still works
 - [ ] Candidate review/edit/install still works
 - [ ] Installed action execution still works
-- [ ] Tests covering the changed generation behavior pass
+- [ ] Tests covering the changed quality-gating behavior pass
 
 ## Manual Verification Checklist
 - [ ] Generate a candidate pack from a normal workflow request
 - [ ] Review/edit/install the candidate successfully
 - [ ] Run an installed action successfully
+- [ ] Confirm low-value but schema-valid packs are rejected or retried clearly
 - [ ] Confirm generated candidate packs contain practical task-solving actions
-- [ ] Confirm malformed or truncated generation output fails clearly
 - [ ] Confirm no regression in current UI usability during candidate review/install
 
 ## Notes for Codex
 - Do root-cause analysis before editing the generation path
 - Do not do an uncontrolled rewrite
-- Prefer the smallest focused fix set that materially improves reliability
+- Prefer the smallest focused fix set that materially improves semantic usefulness

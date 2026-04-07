@@ -91,3 +91,21 @@ def test_generation_prompt_forbids_markdown_fences_and_rule_restatement() -> Non
     assert "Do not restate the rules, allowed placeholders, or schema before the JSON object." in system_prompt
     assert "Prefer universal response-profile ids such as professional_clear, concise_structured, analytical_review, formal_report, friendly_polished, or clear_spanish." in system_prompt
     assert "Do not use input_mode=structured_fields for generated actions" in system_prompt
+
+
+def test_generation_prompt_includes_quality_retry_feedback_when_provided() -> None:
+    presets = PresetStore(templates_dir()).list_builtin()
+    prompt = build_candidate_generation_prompt(
+        goal_text="Help me summarize meeting notes and extract action items",
+        system_prompt="system prompt placeholder",
+        presets=presets,
+        quality_feedback=[
+            "The pack is overly meta or planning-heavy for this goal.",
+            "The pack's actions are weakly differentiated.",
+        ],
+    )
+
+    assert "Quality retry requirements:" in prompt.user_prompt
+    assert "The previous candidate pack failed quality review." in prompt.user_prompt
+    assert "- The pack is overly meta or planning-heavy for this goal." in prompt.user_prompt
+    assert "- The pack's actions are weakly differentiated." in prompt.user_prompt

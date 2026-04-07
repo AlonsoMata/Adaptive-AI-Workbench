@@ -1,10 +1,10 @@
 # SESSION_STATE.md
 
 ## Current State Summary
-The app already supports workflow generation, candidate review/editing, installation, and execution. The preset-controls-redesign milestone is complete. The next milestone is workflow-generation-hardening: improve candidate generation reliability and usefulness without broad UI or execution redesign.
+The app already supports workflow generation, candidate review/editing, installation, and execution. The workflow-generation-hardening milestone is complete. The next milestone is generation-quality-gating: detect and handle structurally valid but obviously low-value candidate packs before normal candidate state.
 
 ## Last Completed Milestone
-preset-controls-redesign
+workflow-generation-hardening
 
 ## What Is Working Now
 - workflow request input
@@ -25,29 +25,27 @@ preset-controls-redesign
 The project became less stable when broad UI/layout work and generation/debugging work were mixed together. Keeping milestones narrow improved stability and made regressions easier to isolate.
 
 ## Current Product Weakness
-Candidate workflow generation is still not reliable enough. The system can fail on malformed or truncated candidate-pack output, schema-valid but low-value packs, inconsistent control references, overly meta/planning-heavy packs, and unclear generation failures.
+Candidate workflow generation is now structurally safer, but schema-valid low-value packs can still pass through. The system still needs a narrow semantic usefulness gate for overly meta/planning-heavy packs, redundant actions, weak action differentiation, and packs whose actions do not materially help achieve the requested outcome.
 
 ## Current Branch
-feature/workflow-generation-hardening
+feature/generation-quality-gating
 
 ## Recommended Next Step
-Trace the end-to-end generation path, identify the top real root causes, and apply the smallest focused fixes in planning, prompting, parsing, validation, and service-level error handling.
+Trace the end-to-end generation path, identify the top semantic failure modes still possible after structural hardening, and add a small explicit quality gate with at most one focused regeneration path.
 
 ## Key Risks Right Now
 - weakening schema validation instead of fixing the real issue
 - mixing generation hardening with unrelated UI/layout work
 - broad refactors that obscure whether generation actually improved
 - accidentally regressing candidate review/install or installed execution
+- silently accepting low-value candidate packs because they are schema-valid
 
 ## Files Likely to Matter Next
 - `services/workbench_service.py`
 - `planning/workflow_generator.py`
-- `planning/goal_analyzer.py`
 - `templates/prompts/generate_action_pack.txt`
-- `safety/parsing.py`
-- `safety/repair.py`
 - `safety/validators.py`
-- `model/gateway.py`
+- relevant generation tests
 
 ## Quick Verification of Current Healthy Baseline
 1. Launch the app

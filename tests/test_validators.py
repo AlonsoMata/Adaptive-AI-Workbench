@@ -5,7 +5,11 @@ import pytest
 from adaptive_ai_workbench.domain.enums import InputMode, PackSource
 from adaptive_ai_workbench.domain.errors import ValidationFailure
 from adaptive_ai_workbench.domain.models import ActionDefinition, CandidateActionPack, InputFieldDefinition
-from adaptive_ai_workbench.safety.validators import install_candidate_pack, validate_candidate_pack
+from adaptive_ai_workbench.safety.validators import (
+    find_generated_candidate_quality_issues,
+    install_candidate_pack,
+    validate_candidate_pack,
+)
 
 
 def build_candidate() -> CandidateActionPack:
@@ -113,3 +117,101 @@ def test_validate_candidate_pack_rejects_structured_fields_actions() -> None:
         validate_candidate_pack(candidate)
 
     assert "structured_fields actions are not currently supported" in str(error.value)
+
+
+def test_generated_candidate_quality_accepts_useful_pack() -> None:
+    assert find_generated_candidate_quality_issues(build_candidate(), build_candidate().goal) == []
+
+
+def test_generated_candidate_quality_rejects_meta_planning_heavy_pack() -> None:
+    base_action = build_candidate().actions[0]
+    candidate = build_candidate().model_copy(
+        update={
+            "actions": [
+                base_action.model_copy(
+                    update={
+                        "action_id": "plan_email_workflow",
+                        "name": "Plan Email Workflow",
+                        "description": "Plan how the email work should be handled before any draft is written.",
+                        "rationale": "A workflow plan comes first.",
+                        "kind": "prompt_transform",
+                        "tags": ["planning", "workflow"],
+                    }
+                ),
+                base_action.model_copy(
+                    update={
+                        "action_id": "outline_email_strategy",
+                        "name": "Outline Email Strategy",
+                        "description": "Create a strategy outline for approaching the email task.",
+                        "rationale": "The strategy should be defined before doing the work.",
+                        "kind": "prompt_transform",
+                        "tags": ["strategy", "planning"],
+                    }
+                ),
+            ]
+        }
+    )
+
+    issues = find_generated_candidate_quality_issues(candidate, candidate.goal)
+
+    assert any("overly meta or planning-heavy" in issue for issue in issues)
+
+
+def test_generated_candidate_quality_rejects_weakly_differentiated_actions() -> None:
+    base_action = build_candidate().actions[0]
+    candidate = build_candidate().model_copy(
+        update={
+            "actions": [
+                base_action.model_copy(
+                    update={
+                        "action_id": "draft_email",
+                        "name": "Draft Email",
+                        "description": "Create an email draft from rough notes.",
+                        "rationale": "Drafting is one version of the output.",
+                    }
+                ),
+                base_action.model_copy(
+                    update={
+                        "action_id": "write_email",
+                        "name": "Write Email",
+                        "description": "Write an email from the same rough notes.",
+                        "rationale": "Writing is another version of the same output.",
+                    }
+                ),
+                base_action.model_copy(
+                    update={
+                        "action_id": "compose_email",
+                        "name": "Compose Email",
+                        "description": "Compose an email from the same rough notes.",
+                        "rationale": "Composing repeats the same output pattern again.",
+                    }
+                ),
+            ]
+        }
+    )
+
+    issues = find_generated_candidate_quality_issues(candidate, candidate.goal)
+
+    assert any("weakly differentiated" in issue for issue in issues)
+
+
+def test_generated_candidate_quality_rejects_pack_that_does_not_match_goal() -> None:
+    candidate = build_candidate().model_copy(
+        update={
+            "actions": [
+                build_candidate().actions[0].model_copy(
+                    update={
+                        "action_id": "analyze_pokemon_team",
+                        "name": "Analyze Pokemon Team",
+                        "description": "Evaluate a competitive monster team and suggest battle roles.",
+                        "rationale": "Battle role analysis helps improve matchups.",
+                        "tags": ["pokemon", "battle"],
+                    }
+                )
+            ]
+        }
+    )
+
+    issues = find_generated_candidate_quality_issues(candidate, candidate.goal)
+
+    assert any("do not clearly align with the requested outcome" in issue for issue in issues)
