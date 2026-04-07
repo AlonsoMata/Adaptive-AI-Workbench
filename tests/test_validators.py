@@ -1,8 +1,11 @@
 ﻿from datetime import datetime, timezone
 
-from adaptive_ai_workbench.domain.enums import PackSource
-from adaptive_ai_workbench.domain.models import ActionDefinition, CandidateActionPack
-from adaptive_ai_workbench.safety.validators import install_candidate_pack
+import pytest
+
+from adaptive_ai_workbench.domain.enums import InputMode, PackSource
+from adaptive_ai_workbench.domain.errors import ValidationFailure
+from adaptive_ai_workbench.domain.models import ActionDefinition, CandidateActionPack, InputFieldDefinition
+from adaptive_ai_workbench.safety.validators import install_candidate_pack, validate_candidate_pack
 
 
 def build_candidate() -> CandidateActionPack:
@@ -48,3 +51,65 @@ def test_install_candidate_pack_uses_timezone_aware_utc_timestamp() -> None:
 
     assert timestamp.tzinfo is not None
     assert timestamp.utcoffset() == timezone.utc.utcoffset(timestamp)
+
+
+def test_validate_candidate_pack_rejects_duplicate_action_ids() -> None:
+    candidate = build_candidate().model_copy(
+        update={
+            "actions": [
+                build_candidate().actions[0],
+                build_candidate().actions[0].model_copy(update={"name": "Second Draft"}),
+            ]
+        }
+    )
+
+    with pytest.raises(ValidationFailure) as error:
+        validate_candidate_pack(candidate)
+
+    assert "action_id values must be unique" in str(error.value)
+
+
+def test_validate_candidate_pack_rejects_unsupported_prompt_placeholders() -> None:
+    candidate = build_candidate().model_copy(
+        update={
+            "actions": [
+                build_candidate().actions[0].model_copy(
+                    update={"user_prompt_template": "Job description:\n{job_description}"}
+                )
+            ]
+        }
+    )
+
+    with pytest.raises(ValidationFailure) as error:
+        validate_candidate_pack(candidate)
+
+    message = str(error.value)
+    assert "unsupported placeholders" in message
+    assert "job_description" in message
+
+
+def test_validate_candidate_pack_rejects_structured_fields_actions() -> None:
+    candidate = build_candidate().model_copy(
+        update={
+            "actions": [
+                build_candidate().actions[0].model_copy(
+                    update={
+                        "input_mode": InputMode.structured_fields,
+                        "fields": [
+                            InputFieldDefinition(
+                                name="job_title",
+                                label="Job Title",
+                                required=True,
+                                placeholder="Senior ML Engineer",
+                            )
+                        ],
+                    }
+                )
+            ]
+        }
+    )
+
+    with pytest.raises(ValidationFailure) as error:
+        validate_candidate_pack(candidate)
+
+    assert "structured_fields actions are not currently supported" in str(error.value)

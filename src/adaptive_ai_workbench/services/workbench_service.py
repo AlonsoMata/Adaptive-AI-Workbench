@@ -172,8 +172,9 @@ class WorkbenchService:
 
     def validate_candidate_workflow(self, candidate: CandidateActionPack) -> CandidateActionPack:
         validated_candidate = validate_candidate_pack(candidate)
-        self._validate_candidate_profiles(validated_candidate)
-        return validated_candidate
+        normalized_candidate = self._normalize_candidate_profiles(validated_candidate)
+        self._validate_candidate_profiles(normalized_candidate)
+        return normalized_candidate
 
     def install_candidate_workflow(self, candidate: CandidateActionPack) -> InstalledActionPack:
         validated_candidate = self.validate_candidate_workflow(candidate)
@@ -304,6 +305,35 @@ class WorkbenchService:
                 "Candidate workflow references unknown action default response profiles: "
                 + ", ".join(sorted(set(invalid_defaults)))
             )
+
+    def _normalize_candidate_profiles(self, candidate: CandidateActionPack) -> CandidateActionPack:
+        seen_recommended: set[str] = set()
+        normalized_recommended: list[str] = []
+        for profile_id in candidate.recommended_preset_ids:
+            resolved_profile_id = self.preset_store.resolve_preset_id(profile_id)
+            if resolved_profile_id not in seen_recommended:
+                normalized_recommended.append(resolved_profile_id)
+                seen_recommended.add(resolved_profile_id)
+
+        normalized_actions = [
+            action.model_copy(
+                update={
+                    "default_preset_id": (
+                        self.preset_store.resolve_preset_id(action.default_preset_id)
+                        if action.default_preset_id
+                        else None
+                    )
+                }
+            )
+            for action in candidate.actions
+        ]
+
+        return candidate.model_copy(
+            update={
+                "recommended_preset_ids": normalized_recommended,
+                "actions": normalized_actions,
+            }
+        )
 
     @staticmethod
     def _find_action(pack: InstalledActionPack, action_id: str) -> ActionDefinition:

@@ -48,6 +48,7 @@ def test_generation_prompt_nudges_research_goals_toward_direct_outputs() -> None
     )
 
     assert "Prefer execution-oriented actions that help the user get a useful result immediately." in prompt.user_prompt
+    assert "Do not use input_mode=structured_fields for generated actions." in prompt.user_prompt
     assert "For investigation, research, exploration, or discovery goals, prefer direct actions such as investigate_topic, summarize_findings, extract_key_insights, suggest_related_concepts, and recommend_sources." in prompt.user_prompt
     assert "Avoid meta actions such as frame_topic_investigation, create_research_brief, or plan_research_workflow unless the goal explicitly asks for planning the research process itself." in prompt.user_prompt
 
@@ -82,8 +83,11 @@ def test_generation_prompt_forbids_markdown_fences_and_rule_restatement() -> Non
     assert "Do not use markdown fences." in prompt.user_prompt
     assert "Do not restate the rules, placeholders, or schema in the response." in prompt.user_prompt
     assert "Treat recommended_preset_ids and default_preset_id as universal response-profile ids" in prompt.user_prompt
+    assert "Use canonical response-profile ids exactly as listed below." in prompt.user_prompt
+    assert "action_id values must be unique within the pack." in prompt.user_prompt
 
     system_prompt = load_prompt("generate_action_pack", templates_dir())
     assert "Do not wrap the JSON in ```json fences." in system_prompt
     assert "Do not restate the rules, allowed placeholders, or schema before the JSON object." in system_prompt
     assert "Prefer universal response-profile ids such as professional_clear, concise_structured, analytical_review, formal_report, friendly_polished, or clear_spanish." in system_prompt
+    assert "Do not use input_mode=structured_fields for generated actions" in system_prompt

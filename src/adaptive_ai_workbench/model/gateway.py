@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
+from types import SimpleNamespace
 
 from openai import OpenAI
 
@@ -101,6 +102,7 @@ class OpenAIModelGateway(ModelGateway):
             max_output_tokens=request.max_output_tokens,
             temperature=request.temperature,
         )
+        self._raise_for_response_status(response)
         output_text = (response.output_text or "").strip()
         if not output_text:
             raise ValidationFailure("The model returned an empty response.")
@@ -115,3 +117,49 @@ class OpenAIModelGateway(ModelGateway):
                 timeout=self._settings.request_timeout_seconds,
             )
         return self._client
+
+    @staticmethod
+    def _raise_for_response_status(response: object) -> None:
+        response_error = getattr(response, "error", None)
+        if response_error is not None:
+            message = getattr(response_error, "message", None) or "The model failed to generate a response."
+            raise ValidationFailure(f"Model generation failed: {message}")
+
+        status = getattr(response, "status", None)
+        if status == "incomplete":
+            incomplete_details = getattr(response, "incomplete_details", None) or SimpleNamespace(reason=None)
+            reason = getattr(incomplete_details, "reason", None)
+            raise ValidationFailure(
+                OpenAIModelGateway._with_output_snippet(
+                    "Model generation returned an incomplete response. "
+                    + OpenAIModelGateway._describe_incomplete_reason(reason),
+                    getattr(response, "output_text", "") or "",
+                )
+            )
+
+        if status in {"failed", "cancelled"}:
+            raise ValidationFailure(f"Model generation did not complete successfully. Response status: {status}.")
+
+    @staticmethod
+    def _describe_incomplete_reason(reason: str | None) -> str:
+        if reason == "max_output_tokens":
+            return "The response likely hit the output token limit before the candidate pack was complete."
+        if reason == "content_filter":
+            return "The response was interrupted by content filtering before the candidate pack was complete."
+        return "The candidate pack was not completed."
+
+    @staticmethod
+    def _with_output_snippet(message: str, raw_text: str) -> str:
+        snippet = OpenAIModelGateway._build_output_snippet(raw_text)
+        if snippet == "<empty>":
+            return message
+        return f"{message}\nModel output snippet: {snippet}"
+
+    @staticmethod
+    def _build_output_snippet(raw_text: str) -> str:
+        collapsed = " ".join(raw_text.split())
+        if not collapsed:
+            return "<empty>"
+        if len(collapsed) <= 280:
+            return collapsed
+        return collapsed[:277] + "..."

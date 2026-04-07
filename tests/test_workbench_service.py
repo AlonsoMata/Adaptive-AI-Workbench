@@ -218,6 +218,27 @@ def test_service_supports_legacy_profile_aliases() -> None:
         assert profile.preset_id == "professional_clear"
 
 
+def test_service_normalizes_legacy_profile_aliases_in_generated_candidates() -> None:
+    payload = build_candidate_payload()
+    payload["recommended_preset_ids"] = ["professional_email", "professional_clear"]
+    payload["actions"][0]["default_preset_id"] = "professional_email"
+
+    with scratch_data_dir() as data_dir:
+        gateway = QueueGateway(outputs=[json.dumps(payload)])
+        settings = Settings(
+            data_dir=data_dir,
+            templates_dir=templates_dir(),
+            openai_api_key="unused-by-stub",
+            openai_model="gpt-test-model",
+        )
+        service = WorkbenchService(settings, gateway=gateway)
+
+        candidate = service.generate_candidate_workflow("Help me summarize meeting notes and extract action items")
+
+        assert candidate.recommended_preset_ids == ["professional_clear"]
+        assert candidate.actions[0].default_preset_id == "professional_clear"
+
+
 def test_controller_generate_workflow_gracefully_handles_unconfigured_model() -> None:
     with scratch_data_dir() as data_dir:
         settings = Settings(

@@ -21,7 +21,7 @@ class PresetStore:
         return sorted(presets, key=lambda preset: preset.name.lower())
 
     def load_builtin(self, preset_id: str) -> PresetDefinition:
-        resolved_preset_id = LEGACY_PRESET_ALIASES.get(preset_id, preset_id)
+        resolved_preset_id = self.resolve_preset_id(preset_id)
         path = self._templates_dir / f"{resolved_preset_id}.json"
         if not path.exists():
             raise StorageError(f"Built-in response profile not found: {preset_id}")
@@ -31,6 +31,9 @@ class PresetStore:
             raise StorageError(f"Failed to load response profile from {path}: {exc}") from exc
 
     def is_known_preset_id(self, preset_id: str) -> bool:
-        resolved_preset_id = LEGACY_PRESET_ALIASES.get(preset_id, preset_id)
+        resolved_preset_id = self.resolve_preset_id(preset_id)
         return (self._templates_dir / f"{resolved_preset_id}.json").exists()
+
+    def resolve_preset_id(self, preset_id: str) -> str:
+        return LEGACY_PRESET_ALIASES.get(preset_id, preset_id)
 

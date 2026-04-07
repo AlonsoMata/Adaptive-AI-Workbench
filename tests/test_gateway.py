@@ -1,8 +1,12 @@
 ﻿from contextlib import contextmanager
 from pathlib import Path
 import shutil
+from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
+
+from adaptive_ai_workbench.domain.errors import ValidationFailure
 from adaptive_ai_workbench.model.gateway import OpenAIModelGateway
 from adaptive_ai_workbench.settings import Settings
 
@@ -46,3 +50,35 @@ def test_gateway_builds_live_text_request_from_system_and_user_prompts() -> None
         assert request.input_text == "Rewrite this text for a client update."
         assert request.max_output_tokens == 2200
         assert request.temperature == 0.4
+
+
+def test_gateway_raises_clear_error_for_incomplete_max_token_response() -> None:
+    with scratch_data_dir() as data_dir:
+        settings = Settings(
+            data_dir=data_dir,
+            templates_dir=templates_dir(),
+            openai_api_key="test-key",
+            openai_model="gpt-test-model",
+        )
+        gateway = OpenAIModelGateway(settings)
+        response = SimpleNamespace(
+            status="incomplete",
+            error=None,
+            incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+            output_text='{"schema_version":"1.0","pack_id":"meeting_helper"',
+        )
+        gateway._client = SimpleNamespace(
+            responses=SimpleNamespace(create=lambda **_: response)
+        )
+
+        with pytest.raises(ValidationFailure) as error:
+            gateway.generate_text(
+                system_prompt="You generate workflow packs.",
+                user_prompt="Help me summarize meeting notes.",
+                max_output_tokens=2200,
+            )
+
+        message = str(error.value)
+        assert "incomplete response" in message
+        assert "output token limit" in message
+        assert "Model output snippet:" in message
