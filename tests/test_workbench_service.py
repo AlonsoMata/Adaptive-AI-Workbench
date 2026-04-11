@@ -6,7 +6,11 @@ from uuid import uuid4
 
 import pytest
 
-from adaptive_ai_workbench.domain.errors import ValidationFailure
+from adaptive_ai_workbench.domain.errors import (
+    CandidateGenerationFailure,
+    CandidateGenerationFailureReason,
+    ValidationFailure,
+)
 from adaptive_ai_workbench.model.gateway import ModelGateway, TextGenerationRequest, TextGenerationResult
 from adaptive_ai_workbench.services.workbench_service import WorkbenchService
 from adaptive_ai_workbench.settings import Settings
@@ -36,6 +40,26 @@ class QueueGateway(ModelGateway):
         self.requests.append(request)
         output_text = self.outputs.pop(0) if self.outputs else "Stub output"
         return TextGenerationResult(output_text=output_text, request=request)
+
+
+class RaisingGateway(ModelGateway):
+    def __init__(self, error: Exception, configured: bool = True) -> None:
+        self.error = error
+        self.configured = configured
+
+    def is_configured(self) -> bool:
+        return self.configured
+
+    def build_text_request(self, system_prompt: str, user_prompt: str, *, max_output_tokens: int | None = None) -> TextGenerationRequest:
+        return TextGenerationRequest(
+            model="gpt-test-model",
+            instructions=system_prompt,
+            input_text=user_prompt,
+            max_output_tokens=max_output_tokens or 900,
+        )
+
+    def generate_text(self, system_prompt: str, user_prompt: str, *, max_output_tokens: int | None = None) -> TextGenerationResult:
+        raise self.error
 
 
 def build_candidate_payload() -> dict[str, object]:
@@ -280,11 +304,59 @@ def test_service_rejects_candidate_after_quality_retry_is_exhausted() -> None:
         )
         service = WorkbenchService(settings, gateway=gateway)
 
-        with pytest.raises(ValidationFailure) as error:
+        with pytest.raises(CandidateGenerationFailure) as error:
             service.generate_candidate_workflow("Help me summarize meeting notes and extract action items")
 
-        assert "quality gating after one regeneration attempt" in str(error.value)
+        assert error.value.feedback.reason_code is CandidateGenerationFailureReason.semantic_quality_rejection
+        assert "did not pass the usefulness checks" in error.value.feedback.summary
+        assert "overly meta or planning-heavy" in str(error.value.feedback.technical_details)
         assert len(gateway.requests) == 2
+
+
+def test_service_normalizes_incomplete_model_response_feedback() -> None:
+    with scratch_data_dir() as data_dir:
+        gateway = RaisingGateway(
+            ValidationFailure(
+                "Model generation returned an incomplete response. The response likely hit the output token limit "
+                "before the candidate pack was complete.\nModel output snippet: {\"pack_id\":\"partial\"}"
+            )
+        )
+        settings = Settings(
+            data_dir=data_dir,
+            templates_dir=templates_dir(),
+            openai_api_key="unused-by-stub",
+            openai_model="gpt-test-model",
+        )
+        service = WorkbenchService(settings, gateway=gateway)
+
+        with pytest.raises(CandidateGenerationFailure) as error:
+            service.generate_candidate_workflow("Help me summarize meeting notes and extract action items")
+
+        assert error.value.feedback.reason_code is CandidateGenerationFailureReason.incomplete_model_response
+        assert error.value.feedback.category_label == "Incomplete Model Response"
+        assert "did not finish it" in error.value.feedback.summary
+
+
+def test_service_normalizes_unsupported_runtime_shape_feedback() -> None:
+    payload = build_candidate_payload()
+    payload["actions"][0]["input_mode"] = "structured_fields"
+
+    with scratch_data_dir() as data_dir:
+        gateway = QueueGateway(outputs=[json.dumps(payload)])
+        settings = Settings(
+            data_dir=data_dir,
+            templates_dir=templates_dir(),
+            openai_api_key="unused-by-stub",
+            openai_model="gpt-test-model",
+        )
+        service = WorkbenchService(settings, gateway=gateway)
+
+        with pytest.raises(CandidateGenerationFailure) as error:
+            service.generate_candidate_workflow("Help me summarize meeting notes and extract action items")
+
+        assert error.value.feedback.reason_code is CandidateGenerationFailureReason.unsupported_runtime_shape
+        assert error.value.feedback.category_label == "Unsupported Action Shape"
+        assert "single text input" in error.value.feedback.action
 
 
 def test_service_supports_legacy_profile_aliases() -> None:
@@ -421,6 +493,8 @@ def test_controller_generation_failure_surfaces_invalid_payload() -> None:
         controller.handle_generate_workflow("Help me improve my CV for AI engineering roles")
 
         assert "Workflow Generation Failed" in controller.state.inspector_text
+        assert "Category: Parse Failure" in controller.state.inspector_text
+        assert "What happened: The model response could not be read as a complete workflow candidate." in controller.state.inspector_text
         assert controller.state.candidate_pack is None
 
 
@@ -617,6 +691,8 @@ def test_controller_generation_failure_surfaces_missing_required_action_fields()
         controller.bootstrap()
         controller.handle_generate_workflow("Create a workflow pack for personalized diet plans")
 
+        assert "Category: Structural Validation Failure" in controller.state.inspector_text
+        assert "What happened: The model returned a workflow candidate, but required fields or values were invalid." in controller.state.inspector_text
         assert "Generated workflow is missing required action fields." in controller.state.inspector_text
         assert "action_id" in controller.state.inspector_text
         assert controller.state.candidate_pack is None
@@ -691,6 +767,7 @@ def test_controller_generation_failure_includes_model_output_snippet() -> None:
         controller.handle_generate_workflow("Help me create the best competitive pokemon team")
 
         assert "Workflow Generation Failed" in controller.state.inspector_text
+        assert "Category: Parse Failure" in controller.state.inspector_text
         assert "Model output snippet:" in controller.state.inspector_text
         assert "Use placeholders like {goal_text}" in controller.state.inspector_text
         assert controller.state.candidate_pack is None

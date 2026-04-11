@@ -1,10 +1,10 @@
 # SESSION_STATE.md
 
 ## Current State Summary
-The app already supports workflow generation, candidate review/editing, installation, and execution. The workflow-generation-hardening milestone is complete. The next milestone is generation-quality-gating: detect and handle structurally valid but obviously low-value candidate packs before normal candidate state.
+The app already supports workflow generation, candidate review/editing, installation, and execution. The generation-quality-gating milestone is complete. The next milestone is candidate-feedback-clarity: make candidate-generation failures and rejections easier for users to understand without redesigning the core flow.
 
 ## Last Completed Milestone
-workflow-generation-hardening
+generation-quality-gating
 
 ## What Is Working Now
 - workflow request input
@@ -25,27 +25,28 @@ workflow-generation-hardening
 The project became less stable when broad UI/layout work and generation/debugging work were mixed together. Keeping milestones narrow improved stability and made regressions easier to isolate.
 
 ## Current Product Weakness
-Candidate workflow generation is now structurally safer, but schema-valid low-value packs can still pass through. The system still needs a narrow semantic usefulness gate for overly meta/planning-heavy packs, redundant actions, weak action differentiation, and packs whose actions do not materially help achieve the requested outcome.
+Candidate workflow generation is now more resilient and quality-gated, but generation failures and rejections are still surfaced inconsistently. Some messages are too technical, too generic, or not actionable enough across the service, controller, inspector, and status path.
 
 ## Current Branch
-feature/generation-quality-gating
+feature/candidate-feedback-clarity
 
 ## Recommended Next Step
-Trace the end-to-end generation path, identify the top semantic failure modes still possible after structural hardening, and add a small explicit quality gate with at most one focused regeneration path.
+Trace the end-to-end candidate-generation failure path, identify the top feedback clarity problems, and add a small normalized feedback model or mapping so users can understand why generation failed or a candidate was rejected.
 
 ## Key Risks Right Now
-- weakening schema validation instead of fixing the real issue
-- mixing generation hardening with unrelated UI/layout work
-- broad refactors that obscure whether generation actually improved
+- weakening schema validation instead of clarifying the real issue
+- mixing feedback work with unrelated UI/layout work
+- broad refactors that obscure whether feedback actually improved
 - accidentally regressing candidate review/install or installed execution
-- silently accepting low-value candidate packs because they are schema-valid
+- continuing to leak raw low-level generation errors directly into user-facing status and inspector text
 
 ## Files Likely to Matter Next
 - `services/workbench_service.py`
-- `planning/workflow_generator.py`
-- `templates/prompts/generate_action_pack.txt`
+- `ui/controller.py`
+- `model/gateway.py`
+- `safety/parsing.py`
 - `safety/validators.py`
-- relevant generation tests
+- relevant generation/controller tests
 
 ## Quick Verification of Current Healthy Baseline
 1. Launch the app

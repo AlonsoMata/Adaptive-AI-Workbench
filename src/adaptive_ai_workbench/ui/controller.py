@@ -3,7 +3,13 @@
 import json
 from typing import Any, Callable
 
-from adaptive_ai_workbench.domain.errors import ConfigurationError, ValidationFailure, WorkbenchError
+from adaptive_ai_workbench.domain.errors import (
+    CandidateGenerationFailure,
+    CandidateGenerationFeedback,
+    ConfigurationError,
+    ValidationFailure,
+    WorkbenchError,
+)
 from adaptive_ai_workbench.domain.models import (
     ActionDefinition,
     CandidateActionPack,
@@ -87,6 +93,12 @@ class AppController:
                 str(error),
             )
             self.append_status(str(error))
+            return
+        if isinstance(error, CandidateGenerationFailure):
+            self.state.inspector_text = self._render_generation_feedback(error.feedback)
+            self.append_status(
+                f"Workflow generation failed ({error.feedback.category_label}): {error.feedback.summary}"
+            )
             return
         if isinstance(error, WorkbenchError):
             self.state.inspector_text = self._render_generation_error(
@@ -553,6 +565,19 @@ class AppController:
     @staticmethod
     def _render_generation_error(title: str, message: str) -> str:
         return f"{title}\n{message}"
+
+    @staticmethod
+    def _render_generation_feedback(feedback: CandidateGenerationFeedback) -> str:
+        details_block = ""
+        if feedback.technical_details:
+            details_block = f"\n\nTechnical Details\n{feedback.technical_details}"
+        return (
+            "Workflow Generation Failed\n"
+            f"Category: {feedback.category_label}\n"
+            f"What happened: {feedback.summary}\n"
+            f"What you can do: {feedback.action}"
+            f"{details_block}"
+        )
 
     @classmethod
     def _render_live_execution_result(cls, result: dict[str, object]) -> str:

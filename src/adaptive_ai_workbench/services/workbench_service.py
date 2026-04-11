@@ -3,7 +3,15 @@
 from pathlib import Path
 from typing import Any
 
-from adaptive_ai_workbench.domain.errors import ConfigurationError, StorageError, ValidationFailure
+from adaptive_ai_workbench.domain.errors import (
+    CandidateGenerationFailure,
+    CandidateGenerationFailureReason,
+    CandidateGenerationFeedback,
+    ConfigurationError,
+    ModelOutputError,
+    StorageError,
+    ValidationFailure,
+)
 from adaptive_ai_workbench.domain.models import (
     ActionDefinition,
     CandidateActionPack,
@@ -168,26 +176,49 @@ class WorkbenchService:
                 presets=presets,
                 quality_feedback=quality_feedback,
             )
-            result = self.gateway.generate_text(
-                system_prompt=generation_prompt.system_prompt,
-                user_prompt=generation_prompt.user_prompt,
-                max_output_tokens=self.WORKFLOW_GENERATION_MAX_OUTPUT_TOKENS,
-            )
-            candidate = parse_candidate_action_pack(result.output_text)
-            validated_candidate = self.validate_candidate_workflow(candidate)
+            try:
+                result = self.gateway.generate_text(
+                    system_prompt=generation_prompt.system_prompt,
+                    user_prompt=generation_prompt.user_prompt,
+                    max_output_tokens=self.WORKFLOW_GENERATION_MAX_OUTPUT_TOKENS,
+                )
+                candidate = parse_candidate_action_pack(result.output_text)
+                validated_candidate = self.validate_candidate_workflow(candidate)
+            except CandidateGenerationFailure:
+                raise
+            except (ModelOutputError, ValidationFailure) as error:
+                raise self._normalize_candidate_generation_error(error) from error
+
             quality_issues = find_generated_candidate_quality_issues(validated_candidate, normalized_goal)
             if not quality_issues:
                 return validated_candidate
             if attempt < self.WORKFLOW_GENERATION_MAX_QUALITY_RETRIES:
                 quality_feedback = quality_issues
                 continue
-            issue_summary = " ".join(quality_issues)
-            raise ValidationFailure(
-                "Generated workflow failed quality gating after one regeneration attempt. "
-                f"{issue_summary}"
+            raise CandidateGenerationFailure(
+                CandidateGenerationFeedback(
+                    reason_code=CandidateGenerationFailureReason.semantic_quality_rejection,
+                    category_label="Semantic Quality Rejection",
+                    summary=(
+                        "The generated workflow was structurally valid, but it was rejected because it did not pass "
+                        "the usefulness checks for this goal."
+                    ),
+                    action=(
+                        "Try Generate Workflow again with a more concrete goal or specify the outputs you want the "
+                        "workflow to produce."
+                    ),
+                    technical_details=" ".join(quality_issues),
+                )
             )
 
-        raise ValidationFailure("Generated workflow failed quality gating.")
+        raise CandidateGenerationFailure(
+            CandidateGenerationFeedback(
+                reason_code=CandidateGenerationFailureReason.semantic_quality_rejection,
+                category_label="Semantic Quality Rejection",
+                summary="The generated workflow was rejected by the quality gate.",
+                action="Try Generate Workflow again with a more concrete goal.",
+            )
+        )
 
     def validate_candidate_workflow(self, candidate: CandidateActionPack) -> CandidateActionPack:
         validated_candidate = validate_candidate_pack(candidate)
@@ -366,6 +397,107 @@ class WorkbenchService:
         if not directory.exists():
             return []
         return sorted(path.stem for path in directory.glob(f"*{suffix}") if path.is_file())
+
+    @staticmethod
+    def _normalize_candidate_generation_error(
+        error: ModelOutputError | ValidationFailure,
+    ) -> CandidateGenerationFailure:
+        message = str(error)
+        lowered = message.casefold()
+
+        if "incomplete response" in lowered:
+            return CandidateGenerationFailure(
+                CandidateGenerationFeedback(
+                    reason_code=CandidateGenerationFailureReason.incomplete_model_response,
+                    category_label="Incomplete Model Response",
+                    summary="The model started the workflow candidate but did not finish it.",
+                    action=(
+                        "Try Generate Workflow again. If this keeps happening, shorten the goal or ask for a smaller "
+                        "workflow pack."
+                    ),
+                    technical_details=message,
+                )
+            )
+
+        if isinstance(error, ModelOutputError):
+            if any(
+                phrase in lowered
+                for phrase in (
+                    "no json object found in model output",
+                    "could not find a valid json object in model output",
+                    "could not extract a balanced json object from model output",
+                    "unable to parse extracted json object",
+                    "model output must be a json object",
+                    "appears to contain an incomplete candidate workflow json object",
+                )
+            ):
+                return CandidateGenerationFailure(
+                    CandidateGenerationFeedback(
+                        reason_code=CandidateGenerationFailureReason.parse_failure,
+                        category_label="Parse Failure",
+                        summary="The model response could not be read as a complete workflow candidate.",
+                        action=(
+                            "Try Generate Workflow again. If it keeps failing, make the goal more specific or split "
+                            "it into a smaller request."
+                        ),
+                        technical_details=message,
+                    )
+                )
+
+            return CandidateGenerationFailure(
+                CandidateGenerationFeedback(
+                    reason_code=CandidateGenerationFailureReason.structural_validation_failure,
+                    category_label="Structural Validation Failure",
+                    summary="The model returned a workflow candidate, but required fields or values were invalid.",
+                    action="Try Generate Workflow again. If it keeps failing, simplify the goal and review the details.",
+                    technical_details=message,
+                )
+            )
+
+        if "structured_fields actions are not currently supported" in lowered:
+            return CandidateGenerationFailure(
+                CandidateGenerationFeedback(
+                    reason_code=CandidateGenerationFailureReason.unsupported_runtime_shape,
+                    category_label="Unsupported Action Shape",
+                    summary=(
+                        "The generated workflow uses action inputs that the current review and execution flow does "
+                        "not support."
+                    ),
+                    action=(
+                        "Try Generate Workflow again and ask for actions that work from a single text input or a "
+                        "text-plus-instruction flow."
+                    ),
+                    technical_details=message,
+                )
+            )
+
+        if any(
+            phrase in lowered
+            for phrase in (
+                "model generation failed",
+                "model generation did not complete successfully",
+                "the model returned an empty response",
+            )
+        ):
+            return CandidateGenerationFailure(
+                CandidateGenerationFeedback(
+                    reason_code=CandidateGenerationFailureReason.model_failure,
+                    category_label="Model or Gateway Failure",
+                    summary="The model did not return a usable workflow candidate.",
+                    action="Try Generate Workflow again. If the problem persists, check the model configuration and retry.",
+                    technical_details=message,
+                )
+            )
+
+        return CandidateGenerationFailure(
+            CandidateGenerationFeedback(
+                reason_code=CandidateGenerationFailureReason.structural_validation_failure,
+                category_label="Structural Validation Failure",
+                summary="The generated workflow candidate did not pass validation.",
+                action="Try Generate Workflow again. If it keeps failing, review the details and simplify the goal.",
+                technical_details=message,
+            )
+        )
 
 
 
